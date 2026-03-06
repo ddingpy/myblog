@@ -1,0 +1,371 @@
+---
+title: "Firebase iOS Backend with Auth, AWS S3 Files, and Optional FastAPI API (Part 2)"
+date: 2025-12-31 09:10:00 +0900
+tags: [firebase, ios, fastapi, aws, s3, auth]
+---
+
+
+Below are *opinionated* extensions to the document—practical design choices, tradeoffs, and “if I were you…” guidance for building an iOS app with Firebase, optionally with AWS S3 and a Python (FastAPI) API.
+
+---
+
+## 1) My default architecture recommendation
+
+If your goal is to ship a solid iOS app quickly and keep complexity low:
+
+### My “default stack”
+
+* **Firebase Auth** for identity
+* **Cloud Firestore** for app data
+* **Firebase Storage** for files *unless you already have S3 or must be on AWS*
+* **Cloud Functions** for small server-side glue
+* **FastAPI** only when you have real backend needs (see below)
+
+This stack is “Firebase-native,” reduces moving parts, and lets your iOS client be productive with fewer backend concerns.
+
+### When I’d bring in FastAPI
+
+I’d add a Python backend when you need at least one of:
+
+* complex business logic (pricing rules, moderation pipelines, scheduling/queuing)
+* integrations (Stripe webhooks, S3 workflows, internal systems)
+* sensitive operations you don’t want in client code (e.g., generating presigned URLs, AI calls, privileged admin actions)
+* “backend as a product” APIs (rate limits, versioning, multi-client support)
+
+If you’re only adding FastAPI because “apps should have an API,” I’d push back: Firebase already *is* an API layer for many CRUD and realtime use cases.
+
+---
+
+## 2) Strong opinions on authentication UX for iOS
+
+### Offer “Sign in with Apple” early (even if you also support email/password)
+
+For iOS, “Sign in with Apple” is often the least-friction option for users. Email/password is still fine, but it can create support burden (password resets, typos, spam signups).
+
+### Don’t overbuild roles and permissions on day 1
+
+Start with:
+
+* “regular user”
+* “admin” (if needed)
+
+When you need more nuance, add **custom claims** or a “roles” doc that your backend controls.
+
+### Treat UID as the canonical identity key everywhere
+
+Do not use email as your primary key in Firestore. Emails change. UIDs do not.
+
+---
+
+## 3) Firestore modeling: what works well vs what hurts later
+
+Firestore is amazing when your model matches it. It’s painful when you try to force relational patterns into it.
+
+## 3.1 The rules I follow almost every time
+
+### Avoid unbounded arrays
+
+Example of what *not* to do:
+
+* `post.likes = [uid1, uid2, uid3, ...]` (unbounded growth)
+
+Better:
+
+* `posts/{postId}/likes/{uid}` (one doc per like)
+* keep `posts/{postId}.likeCount` as a counter (denormalized)
+
+### Prefer “one entity per document”
+
+Keep docs small and queryable. A document is not a dumping ground.
+
+### Denormalize intentionally
+
+It’s normal to store some duplicate fields to make queries fast and cheap:
+
+* store `authorName`, `authorAvatarUrl` on a post
+* update it when user changes profile (via Cloud Function or backend)
+
+This avoids “join-like” fan-out reads in the client.
+
+### Put permissions into the path when possible
+
+A great pattern:
+
+* `users/{uid}/…`
+* `orgs/{orgId}/members/{uid}`
+
+Paths make Security Rules simpler and reduce accidents.
+
+## 3.2 A solid starter schema (common social/app pattern)
+
+```
+users/{uid}
+  - displayName
+  - photoURL
+  - createdAt
+
+posts/{postId}
+  - authorUid
+  - authorDisplayName (denormalized)
+  - text
+  - createdAt
+  - likeCount
+
+posts/{postId}/likes/{uid}
+  - createdAt
+
+users/{uid}/notifications/{notifId}
+  - type
+  - createdAt
+  - readAt (nullable)
+```
+
+This scales surprisingly far if you keep queries simple.
+
+---
+
+## 4) Security Rules: my philosophy
+
+### Use rules as your “seatbelts,” not as your only security system
+
+* If clients write directly to Firestore/Storage, rules must be correct.
+* But rules can’t easily enforce complex constraints (e.g., “user can only create 5 items/day” or “must pay before accessing”).
+
+For those, use a backend.
+
+### Keep rule logic boring and obvious
+
+Avoid clever, complicated rules. Complexity is where mistakes live.
+
+### Make owners explicit
+
+I almost always store an explicit `ownerUid` in documents that represent user-owned resources. It makes rules easy and audits clear.
+
+---
+
+## 5) Firebase Storage vs AWS S3: my blunt recommendation
+
+## If you don’t already have S3 content or AWS mandates:
+
+**Use Firebase Storage.**
+It’s tightly integrated with Firebase Auth and Security Rules and is “one less system.”
+
+## If you already have S3 content, AWS-heavy infra, or want CloudFront pipelines:
+
+**Use S3**, but do it with a clean pattern (below) so your iOS app stays simple and secure.
+
+---
+
+## 6) The S3 pattern I recommend (clean + secure)
+
+### Never put AWS credentials in your iOS app
+
+Even “limited” credentials tend to leak. Mobile is hostile territory.
+
+### Use **presigned URLs** generated by trusted server code
+
+This is the most practical pattern for mobile.
+
+## 6.1 How I’d structure S3 keys (opinionated)
+
+Use user-scoped prefixes:
+
+* `users/{uid}/uploads/{uuid}.{ext}`
+* `users/{uid}/exports/{uuid}.zip`
+
+Why:
+
+* easy to authorize (“user can only access their prefix”)
+* easy to lifecycle-manage and debug
+
+## 6.2 Keep file metadata in Firestore (even if bytes are in S3)
+
+**Do this** so the app can list content without hitting S3 listing APIs:
+
+`files/{fileId}`
+
+* `ownerUid`
+* `bucket`
+* `key`
+* `contentType`
+* `size`
+* `createdAt`
+* `status`: `"pending" | "ready" | "failed"`
+
+### My favorite workflow
+
+1. App requests `POST /files/presign-upload`
+2. Backend verifies Firebase ID token
+3. Backend creates a Firestore `files/{fileId}` with `status="pending"`
+4. Backend returns:
+
+   * `fileId`
+   * `uploadUrl` (presigned PUT)
+   * `finalBucket`, `finalKey`
+5. App uploads bytes to S3
+6. App calls `POST /files/{fileId}/complete`
+7. Backend checks S3 head/object exists, sets `status="ready"`
+
+This makes uploads reliable and debuggable.
+
+---
+
+## 7) FastAPI + Firebase: what people get wrong
+
+## 7.1 The biggest gotcha: Admin SDK bypasses Security Rules
+
+When your server uses Firebase Admin SDK to read/write Firestore, it typically bypasses Security Rules.
+
+That means:
+
+* **You must implement authorization in FastAPI**
+* You cannot assume “Firestore rules will protect it” for server-side operations
+
+I strongly recommend a pattern like:
+
+* `get_current_user()` dependency (verifies token, returns uid)
+* route-level checks (owner/admin)
+* centralized authorization helpers to avoid copy/paste mistakes
+
+## 7.2 Don’t create “an API for everything” unless you must
+
+If the client can safely do it with Firestore + Security Rules, letting it do so can be:
+
+* faster
+* cheaper
+* less code to maintain
+
+Use FastAPI for:
+
+* presigned URLs
+* payments/webhooks
+* heavy compute
+* strict validation flows
+* cross-service orchestration
+* admin workflows
+
+---
+
+## 8) Opinionated iOS client structure that stays sane
+
+Even a small app becomes spaghetti if you dump Firebase calls directly in views.
+
+## 8.1 Use an “AuthSession” + “Repositories” approach
+
+* `AuthSession`: owns login state (user, uid)
+* `UserRepository`, `PostRepository`, etc.: Firestore interactions
+* `ApiClient`: calls FastAPI (attaches Firebase ID token)
+
+**Views** should call repositories, not Firebase SDK directly.
+
+## 8.2 Use async/await wrappers where possible
+
+Even if the SDK uses callbacks, wrap them. Your codebase becomes dramatically more readable.
+
+## 8.3 Treat network errors as normal UX
+
+Plan for:
+
+* offline
+* timeouts
+* revoked sessions
+* partial failure (upload succeeded but metadata update failed)
+
+A “retry” button and a small local queue for uploads can be worth more than fancy features.
+
+---
+
+## 9) Cost and performance: what I’d watch early
+
+Firebase can be very cost-effective—until you accidentally create a “read storm.”
+
+## 9.1 Common cost traps
+
+* Too many realtime listeners on high-churn collections
+* Loading large collections without pagination
+* Chatty updates (writing every keystroke)
+* Over-indexing (letting Firestore auto-prompt you into excessive indexes)
+
+## 9.2 Practical performance habits
+
+* Pagination everywhere for feeds
+* Load “summary docs” for list screens (small fields)
+* Fetch “detail docs” only when needed
+* Use counters carefully (atomic increments, or backend-controlled aggregates)
+
+---
+
+## 10) Testing & environments: the boring stuff that saves you
+
+## 10.1 Separate Firebase projects per environment
+
+I’d use:
+
+* `myapp-dev`
+* `myapp-staging`
+* `myapp-prod`
+
+Same for S3 buckets and FastAPI deployments.
+
+On iOS, map these via build configurations / schemes so you *cannot accidentally point dev builds at prod.*
+
+## 10.2 Use emulators early (even lightly)
+
+If you test rules only in production, you’ll eventually ship a security bug.
+
+## 10.3 Contract tests between iOS and FastAPI
+
+Because your iOS app is a deployed client, breaking APIs is expensive. I like:
+
+* versioned endpoints (`/v1/...`)
+* consistent error schema
+* typed request/response models (shared docs and clear migrations)
+
+---
+
+## 11) My “decision table” for your choices
+
+## Firestore vs “API + database” first
+
+* If your app is CRUD + realtime-ish → **Firestore-first**
+* If your app is complex workflows, heavy validation, strict invariants → **API-first** (FastAPI) + Firebase Auth for identity (still fine)
+
+## Firebase Storage vs S3
+
+* If you’re starting fresh → **Firebase Storage**
+* If you already have S3 assets or need AWS features → **S3 with presigned URLs**
+* If you need global caching and controlled public distribution → **S3 + CloudFront** (often best), still gated by your auth layer if private
+
+## Cloud Functions vs FastAPI
+
+* Small glue + Firebase triggers + light endpoints → **Cloud Functions**
+* Larger APIs, Python ecosystems, heavier compute → **FastAPI**
+
+---
+
+## 12) A concrete “starter plan” I’d actually follow
+
+If you want a practical, low-risk implementation path:
+
+1. **Implement Firebase Auth** (Email/Password + Apple when ready)
+2. **Build the core Firestore model** (users + your main entities)
+3. **Write rules early** (at least ownership rules)
+4. **Ship MVP** with Firestore + (optional) Firebase Storage
+5. Only then:
+
+   * Add **FastAPI** for the first “server-only” need (often S3 presign or payments)
+   * Add **S3** if you truly need it (or already have it)
+
+This keeps your app moving while leaving a clean seam for growth.
+
+---
+
+## If you want, I can extend even further in a specific direction
+
+Here are “deep dive” add-ons I can write directly into the doc next (pick any, no need to reply with lots of detail):
+
+* **A full end-to-end S3 presigned upload design** (routes, request/response, Firestore metadata, edge cases)
+* **Production-ready Firestore Security Rules patterns** (ownership + roles + validation constraints)
+* **A sample FastAPI project layout** with middleware, auth dependency, and S3 + Firestore modules
+* **An iOS SwiftUI sample architecture** (Auth flow + repositories + API client attaching ID tokens)
+* **A cost/performance section** with concrete query patterns (feeds, chats, notifications)
