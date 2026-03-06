@@ -4,13 +4,6 @@ date: 2026-02-19 23:18:00 +0900
 tags: [keyboard, manual, warranty, hardware]
 ---
 
-Got it — I can convert this PDF into a clean Markdown document.
-This file is mostly image-based (the text isn’t extractable automatically), so I rewrote the visible contents from each page into structured Markdown.
-
-Source PDF: 
-
----
-
 ## SPM MONGDOL 87 (PL87W) Manual & Warranty
 
 **Model:** PL87W
