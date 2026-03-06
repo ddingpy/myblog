@@ -38,7 +38,7 @@ layout: default
       {% if current_category %}
         {% assign current_category_slug = current_category | slugify %}
         • Category:
-        <a class="meta-link" href="{{ '/categories/#' | append: current_category_slug | relative_url }}">{{ current_category }}</a>
+        <a class="meta-link" href="{{ '/categories/' | append: current_category_slug | append: '/' | relative_url }}">{{ current_category }}</a>
       {% endif %}
       {% if page.tags.size > 0 %}
         • Tags: {{ page.tags | join: ", " }}

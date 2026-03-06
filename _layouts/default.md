@@ -32,7 +32,7 @@
             {% if primary_category and primary_category != "" %}
               {% assign primary_category_slug = primary_category | slugify %}
               <span class="breadcrumb-separator">/</span>
-              <a href="{{ '/categories/#' | append: primary_category_slug | relative_url }}">{{ primary_category }}</a>
+              <a href="{{ '/categories/' | append: primary_category_slug | append: '/' | relative_url }}">{{ primary_category }}</a>
             {% endif %}
             <span class="breadcrumb-separator">/</span>
             <span aria-current="page">{{ page.title }}</span>

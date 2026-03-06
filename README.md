@@ -78,7 +78,7 @@ tags: [jekyll, tutorial]
 Category/topic behavior:
 
 - Categories are shown on each post and on the home list.
-- Topic landing page is available at `/categories/`.
+- Topic landing page is available at `/categories/`, and each category has its own subpage at `/categories/<category>/`.
 - Use one category per post by placing the file in one folder under `_posts/<category>/`.
 - The category is inferred from the directory path (you do not need a `categories:` field in front matter).
 - Journal entries belong in `_posts/journal/` and are grouped at `/journal/`.
