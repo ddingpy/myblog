@@ -86,7 +86,6 @@ Category/topic behavior:
 Navigation behavior:
 
 - Every page shows a breadcrumb trail at the top (parent to current page).
-- Every page shows quick navigation links (`Home`, `Categories`, `Search`, `About`).
 - Post pages include `Previous`/`Next` links only for posts sharing at least one category, plus an `All Categories` shortcut.
 
 ## Search (Lunr.js)

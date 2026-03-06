@@ -42,14 +42,6 @@
         {% endif %}
       </nav>
 
-      <nav class="section-nav" aria-label="Quick navigation">
-        <a href="{{ '/' | relative_url }}">Home</a>
-        <a href="{{ '/cartoon-journal/' | relative_url }}">Cartoon Journal</a>
-        <a href="{{ '/categories/' | relative_url }}">Categories</a>
-        <a href="{{ '/search/' | relative_url }}">Search</a>
-        <a href="{{ '/about/' | relative_url }}">About</a>
-      </nav>
-
       {{ content }}
     </main>
 
