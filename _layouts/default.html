@@ -12,6 +12,7 @@
         <a class="site-title" href="{{ '/' | relative_url }}">{{ site.title }}</a>
         <nav class="site-nav" aria-label="Main navigation">
           <a href="{{ '/' | relative_url }}">Home</a>
+          <a href="{{ '/categories/' | relative_url }}">Categories</a>
           <a href="{{ '/search/' | relative_url }}">Search</a>
           <a href="{{ '/about/' | relative_url }}">About</a>
         </nav>
@@ -19,6 +20,33 @@
     </header>
 
     <main class="container">
+      <nav class="breadcrumb" aria-label="Breadcrumb">
+        <a href="{{ '/' | relative_url }}">Home</a>
+        {% if page.url != '/' %}
+          <span class="breadcrumb-separator">/</span>
+          {% if page.collection == "posts" %}
+            <a href="{{ '/categories/' | relative_url }}">Categories</a>
+            {% if page.categories and page.categories.size > 0 %}
+              {% assign primary_category = page.categories[0] %}
+              {% assign primary_category_slug = primary_category | slugify %}
+              <span class="breadcrumb-separator">/</span>
+              <a href="{{ '/categories/#' | append: primary_category_slug | relative_url }}">{{ primary_category }}</a>
+            {% endif %}
+            <span class="breadcrumb-separator">/</span>
+            <span aria-current="page">{{ page.title }}</span>
+          {% else %}
+            <span aria-current="page">{{ page.title | default: page.url }}</span>
+          {% endif %}
+        {% endif %}
+      </nav>
+
+      <nav class="section-nav" aria-label="Quick navigation">
+        <a href="{{ '/' | relative_url }}">Home</a>
+        <a href="{{ '/categories/' | relative_url }}">Categories</a>
+        <a href="{{ '/search/' | relative_url }}">Search</a>
+        <a href="{{ '/about/' | relative_url }}">About</a>
+      </nav>
+
       {{ content }}
     </main>
 
