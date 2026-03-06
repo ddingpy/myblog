@@ -1,5 +1,5 @@
 ---
-title: "Writing My Cartoon Journal"
+title: "One More Prompt at 3 AM"
 date: 2026-03-07 02:14:00 +0900
 tags: [journal, cartoon]
 ---
