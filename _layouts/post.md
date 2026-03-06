@@ -56,7 +56,7 @@ layout: default
     <div class="post-pager-slot post-pager-center">
       {% if current_category %}
         {% assign current_category_slug = current_category | slugify %}
-        <a href="{{ '/categories/' | append: current_category_slug | append: '/' | relative_url }}">Category Article List</a>
+        <a href="{{ '/categories/' | append: current_category_slug | append: '/' | relative_url }}">List</a>
       {% else %}
         <a href="{{ '/categories/' | relative_url }}">All Categories</a>
       {% endif %}
