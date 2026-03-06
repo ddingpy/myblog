@@ -206,6 +206,113 @@ pre code {
   padding: 0;
 }
 
+/* Rouge syntax highlighting (light theme). */
+.highlighter-rouge,
+.highlight {
+  color: #202122;
+}
+
+.highlight .c,
+.highlight .ch,
+.highlight .cm,
+.highlight .c1,
+.highlight .cs,
+.highlight .cp {
+  color: #6a737d;
+  font-style: italic;
+}
+
+.highlight .k,
+.highlight .kc,
+.highlight .kd,
+.highlight .kn,
+.highlight .kp,
+.highlight .kr {
+  color: #d73a49;
+}
+
+.highlight .kt,
+.highlight .nc,
+.highlight .nn {
+  color: #6f42c1;
+}
+
+.highlight .nb,
+.highlight .bp {
+  color: #e36209;
+}
+
+.highlight .nf,
+.highlight .fm,
+.highlight .na,
+.highlight .nt {
+  color: #22863a;
+}
+
+.highlight .s,
+.highlight .sa,
+.highlight .sb,
+.highlight .sc,
+.highlight .dl,
+.highlight .sd,
+.highlight .s1,
+.highlight .s2,
+.highlight .se,
+.highlight .sh,
+.highlight .si,
+.highlight .sx,
+.highlight .sr,
+.highlight .ss {
+  color: #032f62;
+}
+
+.highlight .m,
+.highlight .mb,
+.highlight .mf,
+.highlight .mh,
+.highlight .mi,
+.highlight .mo,
+.highlight .il {
+  color: #005cc5;
+}
+
+.highlight .nv,
+.highlight .vc,
+.highlight .vg,
+.highlight .vi,
+.highlight .vm,
+.highlight .no {
+  color: #005cc5;
+}
+
+.highlight .n,
+.highlight .o,
+.highlight .ow,
+.highlight .p {
+  color: #24292e;
+}
+
+.highlight .err {
+  color: #b31d28;
+  background: #ffeef0;
+}
+
+.highlight .gd {
+  color: #b31d28;
+  background: #ffeef0;
+}
+
+.highlight .gi {
+  color: #22863a;
+  background: #f0fff4;
+}
+
+.highlight .gh,
+.highlight .gu {
+  color: #6f42c1;
+  font-weight: 600;
+}
+
 blockquote {
   border-left: 3px solid #a2a9b1;
   color: var(--muted);
