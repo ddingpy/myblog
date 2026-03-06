@@ -18,6 +18,7 @@ A GitHub Pages-compatible Jekyll blog for technical articles, tutorials, and pra
 - `search.json`: generated post index for search
 - `search.md`: search page UI
 - `categories.md`: topic/category landing page
+- `cartoon-journal.md`: dedicated landing page for your cartoon journal entries
 - `Dockerfile`: local Jekyll image
 - `docker-compose.yaml`: local run command and ports
 - `scripts/dev-server.sh`: starts Jekyll watch build + static server
@@ -77,12 +78,13 @@ Category/topic behavior:
 - Categories are shown on each post and on the home list.
 - Topic landing page is available at `/categories/`.
 - Add one or more categories in front matter, for example `categories: [development, backend]`.
+- Cartoon journal entries can use `categories: [cartoon-journal]` and will be grouped at `/cartoon-journal/`.
 
 Navigation behavior:
 
 - Every page shows a breadcrumb trail at the top (parent to current page).
 - Every page shows quick navigation links (`Home`, `Categories`, `Search`, `About`).
-- Post pages include `Previous`/`Next` links plus an `All Categories` shortcut.
+- Post pages include `Previous`/`Next` links only for posts sharing at least one category, plus an `All Categories` shortcut.
 
 ## Search (Lunr.js)
 

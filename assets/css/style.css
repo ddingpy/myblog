@@ -211,6 +211,52 @@ a {
   text-decoration: none;
 }
 
+.post img {
+  border-radius: 12px;
+  display: block;
+  height: auto;
+  max-width: 100%;
+}
+
+.journal-space {
+  background: linear-gradient(140deg, #fffdf7 0%, #fff8e7 100%);
+  border: 1px solid #f1e4bc;
+  border-radius: 12px;
+  margin: 1.2rem 0 2rem;
+  padding: 1.2rem 1.2rem 1rem;
+}
+
+.journal-space h2 {
+  margin-top: 0;
+}
+
+.journal-space p {
+  margin-bottom: 0.8rem;
+}
+
+.journal-prompt-list {
+  margin: 0.4rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.journal-post-list li {
+  padding: 1.2rem;
+}
+
+.journal-figure {
+  background: #fffef9;
+  border: 1px solid #f1e4bc;
+  border-radius: 14px;
+  margin: 1.2rem 0 1.6rem;
+  padding: 0.9rem;
+}
+
+.journal-figure figcaption {
+  color: var(--muted);
+  font-size: 0.92rem;
+  margin-top: 0.6rem;
+}
+
 .search-box {
   width: 100%;
   padding: 0.8rem;

@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" role="img" aria-labelledby="title desc">
+  <title id="title">Cartoon Journal Sample Scene</title>
+  <desc id="desc">A simple cartoon-style character concept with speech bubble and notes.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fef3c7" />
+      <stop offset="100%" stop-color="#fde68a" />
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-opacity="0.18" />
+    </filter>
+  </defs>
+
+  <rect width="1200" height="700" fill="url(#bg)" />
+
+  <rect x="60" y="50" width="1080" height="600" rx="26" fill="#fffef9" stroke="#f59e0b" stroke-width="4" filter="url(#softShadow)" />
+
+  <text x="110" y="120" font-size="42" font-family="Verdana, sans-serif" fill="#92400e" font-weight="700">Cartoon Journal Draft #1</text>
+  <text x="110" y="160" font-size="23" font-family="Verdana, sans-serif" fill="#78350f">Character idea: "Sunny", a curious cloud explorer</text>
+
+  <g transform="translate(190,230)">
+    <ellipse cx="220" cy="160" rx="150" ry="120" fill="#fcd34d" stroke="#78350f" stroke-width="8" />
+    <ellipse cx="170" cy="140" rx="14" ry="20" fill="#111827" />
+    <ellipse cx="270" cy="140" rx="14" ry="20" fill="#111827" />
+    <path d="M165 210 Q220 255 275 210" fill="none" stroke="#7c2d12" stroke-width="8" stroke-linecap="round" />
+    <path d="M108 96 Q220 45 332 96" fill="none" stroke="#7c2d12" stroke-width="6" stroke-linecap="round" />
+    <path d="M95 280 L345 280" stroke="#78350f" stroke-width="8" stroke-linecap="round" />
+    <path d="M130 280 L110 340" stroke="#78350f" stroke-width="8" stroke-linecap="round" />
+    <path d="M310 280 L330 340" stroke="#78350f" stroke-width="8" stroke-linecap="round" />
+  </g>
+
+  <g transform="translate(690,230)">
+    <rect x="0" y="0" width="360" height="220" rx="24" fill="#fef9c3" stroke="#f59e0b" stroke-width="4" />
+    <text x="24" y="56" font-size="28" font-family="Verdana, sans-serif" fill="#78350f" font-weight="700">Notes</text>
+    <text x="24" y="96" font-size="22" font-family="Verdana, sans-serif" fill="#78350f">- Big eye shape works</text>
+    <text x="24" y="132" font-size="22" font-family="Verdana, sans-serif" fill="#78350f">- Add running pose next</text>
+    <text x="24" y="168" font-size="22" font-family="Verdana, sans-serif" fill="#78350f">- Try sunset background</text>
+  </g>
+
+  <g transform="translate(700,480)">
+    <path d="M20 0 H330 C350 0 366 15 366 34 V90 C366 109 350 124 330 124 H130 L98 156 L95 124 H20 C0 124 -16 109 -16 90 V34 C-16 15 0 0 20 0 Z" fill="#ffffff" stroke="#f59e0b" stroke-width="4" />
+    <text x="18" y="54" font-size="24" font-family="Verdana, sans-serif" fill="#78350f">"Tomorrow: 5 action poses!"</text>
+    <text x="18" y="90" font-size="24" font-family="Verdana, sans-serif" fill="#78350f">"Keep shapes simple."</text>
+  </g>
+</svg>
