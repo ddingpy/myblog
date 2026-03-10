@@ -14,7 +14,7 @@ A GitHub Pages-compatible Jekyll blog for technical articles, tutorials, and pra
 - `_config.dev.yml`: local development overrides (`url`/`baseurl`)
 - `_posts/`: blog posts organized by category directories (`_posts/<category>/YYYY-MM-DD-title.md`)
 - `_layouts/`: site and post layouts
-- `assets/css/style.css`: site styles
+- `assets/css/mynote.css`: site styles
 - `assets/js/search.js`: Lunr search logic
 - `search.json`: generated post index for search
 - `search.md`: search page UI
