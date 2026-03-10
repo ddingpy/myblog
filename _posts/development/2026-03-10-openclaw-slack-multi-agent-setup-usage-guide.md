@@ -63,14 +63,18 @@ Before you start: choose one of these deployment shapes
 
 OpenClaw’s recommended install path is npm and the onboarding wizard. The official README says to install openclaw globally and run openclaw onboard --install-daemon so the Gateway stays running as a macOS launchd user service.
 
-> npm install -g openclaw@latest  
-> openclaw onboard --install-daemon
+```
+npm install -g openclaw@latest  
+openclaw onboard --install-daemon
+```
 
 After onboarding, use the built-in checks before you go further.
 
-> openclaw doctor  
-> openclaw channels status --probe  
-> openclaw logs --follow
+```
+openclaw doctor  
+openclaw channels status --probe  
+openclaw logs --follow
+```
 
 Version guidance
 
