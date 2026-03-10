@@ -272,37 +272,39 @@ If a resolved channel name does not immediately give you the ID you need, captur
 
 OpenClaw also supports channel accounts. The channels CLI docs say interactive add can bind configured channel accounts to agents and that account-scoped bindings are first-class. This is useful when you want visible bot separation, such as one Slack app for engineering and another for support.
 
-> {  
-> agents: {  
-> list: \[  
-> { id: "dev", default: true, workspace: "~/.openclaw/workspace-dev" },  
-> { id: "support", workspace: "~/.openclaw/workspace-support" }  
-> \]  
-> },  
->   
-> channels: {  
-> slack: {  
-> enabled: true,  
-> accounts: {  
-> default: {  
-> mode: "socket",  
-> appToken: "xapp-DEV",  
-> botToken: "xoxb-DEV"  
-> },  
-> supportbot: {  
-> mode: "socket",  
-> appToken: "xapp-SUPPORT",  
-> botToken: "xoxb-SUPPORT"  
-> }  
-> }  
-> }  
-> },  
->   
-> bindings: \[  
-> { agentId: "dev", match: { channel: "slack", accountId: "default" } },  
-> { agentId: "support", match: { channel: "slack", accountId: "supportbot" } }  
-> \]  
-> }
+```
+{
+  agents: {
+    list: [
+      { id: “dev”, default: true, workspace: “~/.openclaw/workspace-dev” },
+      { id: “support”, workspace: “~/.openclaw/workspace-support” }
+    ]
+  },
+
+  channels: {
+    slack: {
+      enabled: true,
+      accounts: {
+        default: {
+          mode: “socket”,
+          appToken: “xapp-DEV”,
+          botToken: “xoxb-DEV”
+        },
+        supportbot: {
+          mode: “socket”,
+          appToken: “xapp-SUPPORT”,
+          botToken: “xoxb-SUPPORT”
+        }
+      }
+    }
+  },
+
+  bindings: [
+    { agentId: “dev”, match: { channel: “slack”, accountId: “default” } },
+    { agentId: “support”, match: { channel: “slack”, accountId: “supportbot” } }
+  ]
+}
+```
 
 The CLI docs note that a binding without accountId matches only the default account, while accountId '\*' is the all-accounts fallback. That distinction is important when you scale from one Slack bot to several.
 
