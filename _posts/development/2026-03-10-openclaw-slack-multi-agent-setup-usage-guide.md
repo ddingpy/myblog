@@ -264,7 +264,9 @@ How to get Slack channel IDs
 
 Use OpenClaw’s channel tools to resolve names and inspect available routing targets. The docs show openclaw channels resolve --channel slack '#general' '@jane' as a supported lookup pattern, and message send also supports Slack targets like channel:\<id\> or user:\<id\>.
 
-> openclaw channels resolve --channel slack "#dev" "#help" "@yourname"
+```
+openclaw channels resolve --channel slack "#dev" "#help" "@yourname"
+```
 
 If a resolved channel name does not immediately give you the ID you need, capture it from Slack itself or from OpenClaw logs while sending a test message.
 
