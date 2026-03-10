@@ -1,465 +1,513 @@
-OpenClaw + Slack on Mac mini: Multi‑Agent Setup & Usage Guide
+---
+title: "OpenClaw Multi-Agent on Mac mini with Slack"
+date: 2026-03-10 10:31:00 +0000
+tags: [openclaw, slack, mac-mini, multi-agent, guide]
+---
 
-This guide shows how to run multiple isolated OpenClaw agents on your Mac mini, and route Slack messages to the right agent automatically (multi-agent routing). It also covers day‑to‑day usage, slash commands, threading, and common troubleshooting.
+OpenClaw Multi-Agent on Mac mini with Slack
 
-⸻
+Comprehensive setup and usage guide for running multiple isolated OpenClaw agents on macOS and delivering them through Slack.
 
-1) What “multi‑agent” means in OpenClaw
+Prepared: March 10, 2026
 
-In OpenClaw, a “multi‑agent” setup means:
-	•	One Gateway process running on your Mac mini (the always‑on control plane).  ￼
-	•	Multiple agents hosted side-by-side by that gateway.
-	•	Each agent has its own:
-	•	workspace (files like AGENTS.md, SOUL.md, tools notes, memory)
-	•	session store (chat history + routing state)
-	•	auth profiles (provider credentials)
-	•	Deterministic routing chooses which agent receives an inbound message using your configured bindings.  ￼
+> **What this guide covers  
+> **This guide explains the recommended architecture, installation steps, Slack app setup, multi-agent configuration, routing patterns, operational checks, daily usage, and troubleshooting for OpenClaw on a Mac mini. It assumes you want one always-on OpenClaw Gateway on macOS and one or more isolated agents that answer in Slack.
 
-Key file/path map (default):  ￼
-	•	Config: ~/.openclaw/openclaw.json
-	•	Agent dirs: ~/.openclaw/agents/<agentId>/agent
-	•	Sessions: ~/.openclaw/agents/<agentId>/sessions
+1\. Recommended architecture
 
-Important safety note:
-	•	Do not reuse agentDir across agents (it causes auth/session collisions). If you want to share model/provider creds, copy auth-profiles.json into the other agent’s agentDir.  ￼
-	•	A workspace is the default working directory, not a security sandbox. For real isolation, use sandboxing.  ￼
+For a Mac mini deployment, the cleanest model is one OpenClaw Gateway process running continuously on macOS, with Slack connected as a channel and each agent defined as an isolated OpenClaw agent profile. Each agent should have its own workspace, state directory, auth store, and session history. OpenClaw’s routing bindings then decide which Slack traffic goes to which agent.
 
-⸻
+- One Gateway process on the Mac mini.
+- One Slack app integration, unless you explicitly want separate Slack bot accounts.
+- Multiple OpenClaw agents, each with its own workspace and personality files.
+- Bindings that route Slack traffic by account, team, or exact channel/thread peer when needed.
+- Per-agent sandbox and tool policies for safer public or work-facing agents.
 
-2) Before you start: baseline checks (recommended)
+Good fit scenarios
 
-Confirm install requirements
+- A coding agent for engineering questions and a support agent for Slack help channels.
+- A private deep-work agent plus a general team assistant.
+- A restricted public-facing agent for shared Slack channels and a full-access personal agent for DMs.
 
-OpenClaw requires Node 22+ (installer can install it), runs on macOS, and can be installed via the installer script or npm.  ￼
+2\. What multi-agent means in OpenClaw
 
-Verify your Gateway is healthy
+In OpenClaw, an agent is not just a prompt. It is a fully scoped runtime with its own workspace, agentDir, auth profiles, and session store. OpenClaw documents that each agent has a separate workspace, separate state directory, and sessions under ~/.openclaw/agents/\<agentId\>/sessions. It also warns not to reuse agentDir across agents because that causes auth and session collisions.
 
-Run (on your Mac mini):
+| **Component**       | **Per-agent?** | **Why it matters**                                |
+|---------------------|----------------|---------------------------------------------------|
+| Workspace           | Yes            | Different files, prompts, notes, and local skills |
+| agentDir            | Yes            | Separate auth profiles and per-agent config       |
+| Sessions            | Yes            | No context bleed between agents                   |
+| Slack bindings      | Configurable   | Routes Slack traffic to the correct agent         |
+| Sandbox/tool policy | Yes            | Lets you lock down riskier agents                 |
 
-openclaw gateway status
-openclaw status
-openclaw channels status --probe
-openclaw logs --follow
+3\. Prerequisites on the Mac mini
 
-These are the standard “healthy baseline” checks.  ￼
+- macOS with terminal access and admin rights.
+- Node.js 22 or newer, because the OpenClaw install docs require Node \>= 22.
+- A Slack workspace where you can create or manage a Slack app.
+- A model provider account for whichever model you want OpenClaw to use.
+- Docker Desktop or another Docker runtime if you want sandboxed agents.
+- A plan for how you want routing to work: by Slack channel, by Slack workspace, by account, or by exact conversations.
 
-Security hygiene (strongly recommended)
+Before you start: choose one of these deployment shapes
 
-OpenClaw is designed with a personal-assistant trust model (one trusted operator boundary per gateway), and warns against treating one shared gateway as a hostile multi-tenant boundary.  ￼
 
-Run:
+| **Pattern**                                      | **When to use it**                       | **How routing works**                                                                     |
+|--------------------------------------------------|------------------------------------------|-------------------------------------------------------------------------------------------|
+| Single Slack bot, many OpenClaw agents           | Most common on one workspace             | Bindings decide which channel or conversation goes to which agent                         |
+| Multiple Slack accounts/bots, many agents        | You want visible bot separation in Slack | Each Slack account is bound to a dedicated agent or set of channels                       |
+| One default agent plus one restricted specialist | You want safety with minimal complexity  | Default binding handles most traffic; specific bindings capture sensitive/public channels |
 
-openclaw security audit
+4\. Install OpenClaw on the Mac mini
 
-(And consider --deep or --fix when you’re comfortable.)  ￼
+OpenClaw’s recommended install path is npm and the onboarding wizard. The official README says to install openclaw globally and run openclaw onboard --install-daemon so the Gateway stays running as a macOS launchd user service.
 
-⸻
+> npm install -g openclaw@latest  
+> openclaw onboard --install-daemon
 
-3) Pick your multi‑agent strategy for Slack
+After onboarding, use the built-in checks before you go further.
 
-There are three common patterns:
+> openclaw doctor  
+> openclaw channels status --probe  
+> openclaw logs --follow
 
-Pattern A — One Slack App, route by channel/DM (most common)
-	•	One Slack bot in your workspace.
-	•	OpenClaw routes:
-	•	#ops → ops agent
-	•	#eng → engineering agent
-	•	DMs → your personal agent
-	•	This is done with bindings that match Slack “peers” (channels/DM senders).  ￼
+Version guidance
 
-Pattern B — Multiple Slack Apps (separate bot identities per agent)
-	•	Each agent has its own Slack bot app (separate tokens).
-	•	You configure Slack multi-account in channels.slack.accounts.
-	•	Then bind Slack accountIds to agents (simpler routing, separate identities).
+Use the latest stable release available to you. The public changelog currently shows OpenClaw 2026.3.3, and a recent security issue affecting localhost WebSocket authentication was reported as patched in 2026.2.25 or later. On a fresh deployment, it is sensible to update first and avoid older builds.
 
-Slack supports multi-account configuration behavior and precedence rules.  ￼
+> openclaw update  
+> openclaw doctor
 
-Pattern C — Multiple Slack workspaces, route by workspace (teamId)
-	•	If you connect multiple Slack workspaces, route “Workspace A” → agent A using teamId rules.
-	•	OpenClaw routing precedence includes teamId for Slack.  ￼
+5\. Create the Slack app
 
-This doc focuses on Pattern A (best starting point), and adds Pattern B/C as advanced options.
+The Slack guide says OpenClaw’s default Slack mode is Socket Mode. For Socket Mode, you need an App Token (xapp-...) with connections:write and a Bot Token (xoxb-...). It also recommends subscribing to message and reaction events and enabling App Home Messages for DMs.
 
-⸻
+1.  Create a Slack app in your workspace.
+2.  Enable Socket Mode.
+3.  Create an App Token with the connections:write scope.
+4.  Install the app and copy the Bot Token.
+5.  Enable App Home Messages so DMs work cleanly.
+6.  Subscribe bot events including app_mention, message.channels, message.groups, message.im, message.mpim, reaction_added, reaction_removed, member_joined_channel, member_left_channel, channel_rename, pin_added, and pin_removed.
 
-4) Step-by-step: create multiple agents
+Slack scopes to include
 
-4.1 Create agents (wizard / CLI)
 
-OpenClaw provides an agent helper:
+| **Scope type**                       | **Scopes**                                                                                                                                                                      |
+|--------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| App token                            | connections:write                                                                                                                                                               |
+| Bot scopes commonly used in the docs | chat:write, channels:history, channels:read, groups:history, im:history, im:read, im:write, mpim:history, mpim:read, mpim:write, users:read, app_mentions:read, assistant:write |
 
-openclaw agents add work
-openclaw agents add ops
-openclaw agents list --bindings
+If you want Slack’s assistant thread status and native text streaming behavior, OpenClaw’s docs say the app must have assistant:write and Slack Agents and AI Apps must be enabled in the app settings. A reply thread also has to exist for native streaming.
 
-This creates isolated workspaces + agent directories + session stores.  ￼
+6\. Connect Slack to OpenClaw
 
-4.2 Customize each agent’s “personality” and boundaries
+For the default account, OpenClaw documents this minimal Socket Mode configuration:
 
-Each workspace typically includes:
-	•	SOUL.md (identity/tone/boundaries)
-	•	AGENTS.md (behavior + operating instructions)
-	•	TOOLS.md (environment-specific tool notes)
-	•	optionally IDENTITY.md (name/theme/avatar fields)
-
-The default workspace template documents recommended structure, including safety defaults and a suggested way to version your workspace with git.  ￼
-
-Optional: set identity (nice in UI + Slack presence)
-
-openclaw agents set-identity --agent work --name "Work Claw" --emoji ":briefcase:"
-openclaw agents set-identity --agent ops --name "Ops Claw" --emoji ":rotating_light:"
-
-Identity is stored in agents.list[].identity.  ￼
-
-⸻
-
-5) Step-by-step: Slack channel setup (Socket Mode recommended on a Mac mini)
-
-OpenClaw’s Slack connector supports:
-	•	Socket Mode (recommended for self-hosted / home NAT / no public URL)
-	•	HTTP Events API mode (requires a publicly reachable endpoint)
-
-Socket Mode needs botToken + appToken. HTTP mode needs botToken + signingSecret.  ￼
-
-5.1 Create & configure a Slack App
-
-You can configure your Slack app manually, or use a manifest.
-
-Required bot events (subscribe to these):
-	•	app_mention
-	•	message.channels, message.groups, message.im, message.mpim
-	•	reaction_added, reaction_removed
-	•	member_joined_channel, member_left_channel
-	•	channel_rename
-	•	pin_added, pin_removed  ￼
-
-Also:
-	•	Enable App Home → Messages Tab (needed for DMs).  ￼
-
-Typical scopes (from the OpenClaw manifest checklist):
-commands, chat:write, chat:write.customize, chat:write.public, files:write,
-channels:history, groups:history, im:history, mpim:history,
-reactions:write, pins:write, users:read, users:read.email.  ￼
-
-5.2 Configure OpenClaw for Slack (Socket Mode)
-
-Edit ~/.openclaw/openclaw.json (it’s JSON5; comments/trailing commas are ok).  ￼
-
-Minimal Slack Socket Mode config:
-
+```
 {
   channels: {
     slack: {
       enabled: true,
       mode: "socket",
-      botToken: "xoxb-***",
-      appToken: "xapp-***",
-
-      // Recommended: restrict channel behavior
-      groupPolicy: "allowlist",
-      channels: {
-        // allowlist channels by ID or name (ID is safest)
-        // "C0123ABCDEF": { requireMention: true },
-      },
-    },
-  },
+      appToken: "xapp-...",
+      botToken: "xoxb-..."
+    }
+  }
 }
+```
 
-Notes you should know:
-	•	Config tokens override env fallbacks.
-	•	SLACK_BOT_TOKEN / SLACK_APP_TOKEN env fallback applies only to the default Slack account.  ￼
-	•	DMs default to pairing mode (more below).  ￼
+Environment variables can also be used for the default account.
 
-5.3 Start / restart the gateway
+> export SLACK_APP_TOKEN=xapp-...  
+> export SLACK_BOT_TOKEN=xoxb-...
 
-openclaw gateway restart
-openclaw channels status --probe
+Useful first checks
 
-￼
+> openclaw gateway  
+> openclaw channels status --probe  
+> openclaw channels list
 
-⸻
+7\. Create multiple OpenClaw agents
 
-6) Step-by-step: enable multi-agent routing for Slack
+The official multi-agent guide recommends using the agent helper to create isolated agents. Each new agent gets its own workspace, SOUL.md, AGENTS.md, optional USER.md, dedicated agentDir, and dedicated session store.
 
-Multi-agent routing uses bindings. Bindings are evaluated deterministically; most-specific wins, and the fallback is your default agent.  ￼
+> openclaw agents add main  
+> openclaw agents add dev  
+> openclaw agents add support
 
-Routing precedence (simplified; relevant tiers):  ￼
-	1.	peer match (exact DM/group/channel id)
-…
-	2.	teamId (Slack workspace)
-	3.	accountId match for a channel
-	4.	channel-wide match (accountId: "*")
-	5.	fallback to default agent
+After creating them, edit each workspace so the personas are actually different.
 
-6.1 Recommended Slack privacy setting: secure DM sessions
 
-If more than one person can DM your bot, you should isolate DM sessions per sender to avoid context leakage. Set:
+| **Agent** | **Suggested workspace purpose** | **Typical files to customize**              |
+|-----------|---------------------------------|---------------------------------------------|
+| main      | Your private default assistant  | SOUL.md, AGENTS.md, IDENTITY.md             |
+| dev       | Engineering/coding assistant    | SOUL.md, AGENTS.md, local skills/           |
+| support   | Public or team-facing helper    | SOUL.md, AGENTS.md, restricted tools policy |
 
+8\. Choose your routing model
+
+OpenClaw routing is deterministic and most-specific wins. The official order is: exact peer match, parentPeer match, Discord guild and roles, Discord guild, Slack teamId, accountId match for a channel, channel-level match with accountId '\*', and finally the default agent. This matters because a specific Slack channel binding should appear above a broader fallback binding.
+
+Recommended starting pattern for Slack
+
+- Pick one default agent for all Slack traffic first.
+- Add exact bindings only for channels or conversations that need a different agent.
+- Keep the broad fallback last in config order.
+- Do not share agentDir between agents.
+- Use per-agent sandbox/tool restrictions for any agent that interacts with broader audiences.
+
+9\. Example configuration: one Slack workspace, three agents
+
+This example is a practical starting point for a Mac mini on one Slack workspace. It uses one default private agent, one engineering agent for a dev channel, and one restricted support agent for a help channel. Replace placeholder IDs after resolving them from Slack.
+
+```
 {
-  session: {
-    dmScope: "per-channel-peer",
-  },
-}
-
-This is the recommended “secure DM mode” for multi-user inboxes.  ￼
-
-(With this, DM session keys become agent:<agentId>:slack:dm:<peerId>-style, rather than all DMs sharing main.)  ￼
-
-6.2 Example: one Slack bot, three agents (work / ops / personal)
-
-Below is a realistic, copy-paste-able pattern A config skeleton. Replace the IDs:
-	•	Slack channel IDs look like C… (public channels) and G… (private channels / group-ish IDs).
-	•	Slack user IDs look like U… (for DM sender IDs).
-
-{
-  // 1) Secure DM mode (recommended if >1 person can DM the bot)
-  session: { dmScope: "per-channel-peer" },
-
-  // 2) Define multiple agents
   agents: {
     list: [
-      { id: "personal", default: true, workspace: "~/.openclaw/workspace-personal" },
-      { id: "work", workspace: "~/.openclaw/workspace-work" },
-      { id: "ops", workspace: "~/.openclaw/workspace-ops" },
-    ],
+      {
+        id: "main",
+        default: true,
+        name: "Primary Assistant",
+        workspace: "~/.openclaw/workspace",
+        sandbox: {
+          mode: "off"
+        }
+      },
+      {
+        id: "dev",
+        name: "Dev Agent",
+        workspace: "~/.openclaw/workspace-dev",
+        sandbox: {
+          mode: "off"
+        }
+      },
+      {
+        id: "support",
+        name: "Support Agent",
+        workspace: "~/.openclaw/workspace-support",
+        sandbox: {
+          mode: "all",
+          scope: "agent"
+        },
+        tools: {
+          allow: [
+            "read",
+            "message",
+            "sessions_list",
+            "sessions_history"
+          ],
+          deny: [
+            "exec",
+            "write",
+            "edit",
+            "apply_patch",
+            "browser",
+            "canvas",
+            "cron"
+          ]
+        }
+      }
+    ]
   },
-
-  // 3) Route Slack messages to different agents
-  // Put most-specific bindings first.
-  bindings: [
-    // Channel routing
-    { agentId: "ops", match: { channel: "slack", peer: { kind: "channel", id: "C012OPS" } } },
-    { agentId: "work", match: { channel: "slack", peer: { kind: "channel", id: "C034WORK" } } },
-
-    // Optional: DM routing for specific people (by sender ID)
-    { agentId: "work", match: { channel: "slack", peer: { kind: "direct", id: "U0WORKBOSS" } } },
-
-    // Fallback: everything else on Slack goes to personal (default account)
-    { agentId: "personal", match: { channel: "slack", accountId: "default" } },
-  ],
-
-  // 4) Slack connector config
   channels: {
     slack: {
       enabled: true,
       mode: "socket",
-      botToken: "xoxb-***",
-      appToken: "xapp-***",
-
-      // Recommended for shared workspaces:
-      // only respond in channels you explicitly allow.
-      groupPolicy: "allowlist",
-      channels: {
-        C012OPS: { requireMention: true },
-        C034WORK: { requireMention: true },
-      },
-
-      // DMs default to pairing; keep it unless you have a strong reason.
+      appToken: "xapp-REPLACE_ME",
+      botToken: "xoxb-REPLACE_ME",
       dmPolicy: "pairing",
-    },
+      dm: {
+        enabled: true
+      },
+      streaming: "partial",
+      nativeStreaming: true
+    }
   },
+  bindings: [
+    {
+      agentId: "dev",
+      match: {
+        channel: "slack",
+        peer: {
+          kind: "channel",
+          id: "C_DEV_CHANNEL_ID"
+        }
+      }
+    },
+    {
+      agentId: "support",
+      match: {
+        channel: "slack",
+        peer: {
+          kind: "channel",
+          id: "C_HELP_CHANNEL_ID"
+        }
+      }
+    },
+    {
+      agentId: "main",
+      match: {
+        channel: "slack",
+        accountId: "*"
+      }
+    }
+  ]
 }
+```
+
+How to get Slack channel IDs
+
+Use OpenClaw’s channel tools to resolve names and inspect available routing targets. The docs show openclaw channels resolve --channel slack '#general' '@jane' as a supported lookup pattern, and message send also supports Slack targets like channel:\<id\> or user:\<id\>.
+
+> openclaw channels resolve --channel slack "#dev" "#help" "@yourname"
+
+If a resolved channel name does not immediately give you the ID you need, capture it from Slack itself or from OpenClaw logs while sending a test message.
+
+10\. Example configuration: multiple Slack accounts or bots
+
+OpenClaw also supports channel accounts. The channels CLI docs say interactive add can bind configured channel accounts to agents and that account-scoped bindings are first-class. This is useful when you want visible bot separation, such as one Slack app for engineering and another for support.
+
+> {  
+> agents: {  
+> list: \[  
+> { id: "dev", default: true, workspace: "~/.openclaw/workspace-dev" },  
+> { id: "support", workspace: "~/.openclaw/workspace-support" }  
+> \]  
+> },  
+>   
+> channels: {  
+> slack: {  
+> enabled: true,  
+> accounts: {  
+> default: {  
+> mode: "socket",  
+> appToken: "xapp-DEV",  
+> botToken: "xoxb-DEV"  
+> },  
+> supportbot: {  
+> mode: "socket",  
+> appToken: "xapp-SUPPORT",  
+> botToken: "xoxb-SUPPORT"  
+> }  
+> }  
+> }  
+> },  
+>   
+> bindings: \[  
+> { agentId: "dev", match: { channel: "slack", accountId: "default" } },  
+> { agentId: "support", match: { channel: "slack", accountId: "supportbot" } }  
+> \]  
+> }
+
+The CLI docs note that a binding without accountId matches only the default account, while accountId '\*' is the all-accounts fallback. That distinction is important when you scale from one Slack bot to several.
+
+11\. Bindings via CLI instead of hand-editing
+
+If you prefer, use the CLI rather than editing JSON5 manually. The official agents CLI provides bindings commands.
+
+> openclaw agents bindings  
+> openclaw agents bindings --agent dev  
+> openclaw agents bind --agent dev --bind slack  
+> openclaw agents unbind --agent dev --all
+
+For account-scoped binding, use the channel:account form.
+
+> openclaw agents bind --agent support --bind slack:supportbot
+
+12\. Add identity and behavior per agent
+
+Multi-agent works best when the agents are visibly different. OpenClaw supports setting identity fields such as name, theme, emoji, and avatar, and each workspace can also include an IDENTITY.md file.
+
+> openclaw agents set-identity --agent dev --name "Dev Agent"  
+> openclaw agents set-identity --agent support --name "Support Agent"
+
+- Put concise persona and response style rules in SOUL.md.
+- Put operating instructions and workflow rules in AGENTS.md.
+- Keep channel-specific policies minimal and clear.
+- For public agents, prefer shorter answers, fewer tools, and explicit escalation behavior.
+
+13\. Add sandboxing and tool restrictions
+
+This is one of the most important parts of a production multi-agent setup. OpenClaw explicitly supports per-agent sandbox configuration and tool restrictions. Its docs show that agent-specific sandbox settings override defaults and that later tool policies can only restrict, not re-grant denied tools.
 
-Why this works:
-	•	peer bindings are the most specific (top tier), so they win over account-level fallbacks.  ￼
-	•	Slack chat types map as: DMs = direct, channels = channel, MPIMs = group.  ￼
-	•	Restricting Slack groupPolicy + channel allowlist prevents the bot from “being everywhere.”  ￼
+- Leave your private main agent unsandboxed only if you trust the traffic reaching it.
+- Sandbox public or shared-channel agents.
+- Deny write, edit, apply_patch, browser, and exec for broad-audience agents unless you truly need them.
+- Use openclaw sandbox explain and gateway logs to debug why a tool is blocked.
 
-6.3 Restart & verify routing
+```
+{
+  agents: {
+    list: [
+      {
+        id: "support",
+        workspace: "~/.openclaw/workspace-support",
+        sandbox: {
+          mode: "all",
+          scope: "agent"
+        },
+        tools: {
+          allow: [
+            "read",
+            "message"
+          ],
+          deny: [
+            "exec",
+            "write",
+            "edit",
+            "apply_patch",
+            "browser",
+            "canvas",
+            "cron"
+          ]
+        }
+      }
+    ]
+  }
+}
+```
 
-openclaw gateway restart
-openclaw agents list --bindings
-openclaw channels status --probe
+14\. Start, restart, and verify
 
-￼
+After configuration changes, restart the Gateway and verify routing before inviting real users.
 
-Then test by posting in each channel and confirming the correct agent responds.
+> openclaw gateway restart  
+> openclaw agents list --bindings  
+> openclaw channels status --probe  
+> openclaw logs --follow
 
-⸻
+7.  Send a DM to the Slack bot and confirm the default agent responds.
 
-7) How to use multi-agent in Slack day-to-day
+8.  Mention the bot in each routed Slack channel and confirm the correct agent responds.
 
-7.1 Talking to the right agent
+9.  Try a support-channel request that would need a blocked tool and confirm it is denied cleanly.
 
-With peer-based routing:
-	•	Talk in #ops → ops agent responds (subject to mention rules)
-	•	Talk in #work → work agent responds
-	•	DM the bot → routed by your DM rules (or fallback)
+10. Watch logs for routing, sandbox, and tool policy messages.
 
-7.2 Mention gating (important in channels)
+15\. How to use the system day to day
 
-OpenClaw’s Slack channel handling is mention-gated by default. Mention sources include:  ￼
-	•	explicit app mention (<@botId>)
-	•	mention regex patterns (agent or global config)
-	•	implicit reply-to-bot thread behavior
+In Slack
 
-Practical usage:
-	•	In a channel, use @YourBot … to trigger it.
-	•	Or reply in the same thread the bot started (depending on your threading settings).
+- DM the bot for private conversations routed to your default agent.
+- Use dedicated channels for specialist agents such as \#dev-ai or \#help-ai.
+- Keep one function per channel when possible so the routing stays obvious.
+- For shared channels, enable mention gating or require explicit mentions to reduce noise.
 
-7.3 Threads and session behavior (highly recommended)
+From the terminal on the Mac mini
 
-Slack threads can create separate session suffixes (like :thread:<threadTs>), and you can control how much history is fetched when a new thread session starts.  ￼
+> openclaw agent --message "Review this deployment plan" --thinking high  
+> openclaw message send --channel slack --target channel:C1234567890 --message "OpenClaw test message"
 
-Key settings (optional, but useful):
-	•	channels.slack.thread.historyScope (default thread)
-	•	channels.slack.thread.inheritParent (default false)
-	•	channels.slack.thread.initialHistoryLimit (default 20; set 0 to disable history fetch)
-	•	channels.slack.replyToMode: off|first|all (default off)
-	•	Manual reply tags: [[reply_to_current]] and `[[reply_to:]] (disabled if replyToMode=“off”)  ￼
+The CLI is useful for smoke tests, scripted checks, and verifying that an agent itself works before debugging Slack delivery.
 
-7.4 DM pairing approvals (common “why isn’t it responding?” issue)
+Operational habits that help
 
-Slack DMs default to pairing mode (unknown senders get a short pairing code).  ￼
+- Keep one workspace folder per agent and document its purpose.
+- Review SOUL.md and AGENTS.md when behavior drifts.
+- Use narrow bindings first and widen later.
+- Run openclaw doctor after upgrades or after large config edits.
 
-Approve a sender (from your Mac mini terminal):
+16\. Common routing patterns
 
-openclaw pairing approve slack <code>
 
-Pairing approval is explicitly documented for Slack.  ￼
+| **Pattern**                    | **Binding idea**                                                    | **Example use**                                          |
+|--------------------------------|---------------------------------------------------------------------|----------------------------------------------------------|
+| Default + specialist channel   | Specific peer binding for one channel, then accountId '\*' fallback | Only \#dev-ai goes to the dev agent                      |
+| Workspace-wide Slack isolation | teamId binding                                                      | One Slack workspace routed to one agent                  |
+| Per-bot separation             | accountId binding                                                   | Different Slack apps for support vs engineering          |
+| Conversation-level override    | Exact peer binding                                                  | One sensitive channel or DM routed to a restricted agent |
 
-7.5 Slash commands in Slack (two ways)
+17\. Troubleshooting
 
-Slack treats /something as a Slack slash command, so you don’t get “text commands” for free. OpenClaw supports:
+No replies in Slack channels
 
-Option A — One “single slash command”
-	•	If native commands are off, you can configure one Slack slash command via channels.slack.slashCommand.  ￼
-	•	Default slash command settings include:
-	•	enabled: false
-	•	name: "openclaw"
-	•	sessionPrefix: "slack:slash"
-	•	ephemeral: true
-	•	Slash sessions use isolated keys like agent:<agentId>:slack:slash:<userId>.  ￼
+- Check groupPolicy, channel allowlists, and requireMention.
+- Verify the bot is invited to the Slack channel.
+- Run openclaw channels status --probe and openclaw doctor.
+- Watch openclaw logs --follow while sending a fresh test message.
 
-This is best if you want minimal Slack app configuration.
+DMs are ignored
 
-Option B — Native OpenClaw commands as Slack slash commands
-	•	Enable native command handlers:
-	•	channels.slack.commands.native: true (or global commands.native: true)  ￼
-	•	Then create slash commands in Slack for the commands you want.
-	•	Special case: Slack reserves /status, so register /agentstatus for OpenClaw’s status command.  ￼
-	•	OpenClaw has a documented command list (help, commands, skill, status, allowlist, approve, context, export, whoami, etc.).  ￼
+- Check channels.slack.dm.enabled.
+- Check channels.slack.dmPolicy. Pairing is the default safe mode.
+- List and approve pending pairings when required.
 
-⸻
+> openclaw pairing list slack
 
-8) Advanced: multiple Slack accounts (multiple Slack apps) per Gateway
+Socket Mode does not connect
 
-If you want separate bot identities (or multiple Slack workspaces), configure:
-	•	channels.slack.accounts.default and one or more named accounts
-	•	For HTTP mode, use unique webhookPath per account to avoid collisions.  ￼
-	•	Account inheritance/precedence rules apply for allowlists, etc.  ￼
-	•	Bind per account with bindings using accountId.
+- Confirm Socket Mode is enabled in the Slack app.
+- Confirm both xapp and xoxb tokens are correct.
+- Reinstall the Slack app after scope changes if needed.
 
-Bindings without accountId match default account only, and accountId:"*" is a channel-wide fallback.  ￼
+Wrong agent answers
 
-⸻
+- Review binding order: the most specific rule should appear before broader rules.
+- Check whether your fallback is accountId '\*' or only the default account.
+- Run openclaw agents list --bindings to confirm the effective routing table.
+- Avoid ambiguous wide rules until the narrower rules are proven.
 
-9) Testing & verification workflow (recommended)
+Streaming behavior looks odd
 
-Quick “it works” checks
-	1.	Gateway health:
+OpenClaw’s Slack docs distinguish between preview streaming and Slack native streaming. If native stream behavior is noisy or unsupported in your workspace, keep streaming partial but set nativeStreaming to false.
 
-openclaw gateway status
+```
+channels: {
+  slack: {
+    streaming: "partial",
+    nativeStreaming: false
+  }
+}
+```
 
-￼
-	2.	Channel probe:
+18\. Security and reliability recommendations
 
-openclaw channels status --probe
+- Update OpenClaw before exposing it to regular Slack traffic.
+- Do not reuse agentDir across agents.
+- Use dmPolicy pairing unless you explicitly need open inbound DMs.
+- Restrict tools for any shared-channel or public-facing agent.
+- Prefer dedicated agents over complicated prompt logic when you need separation of duty.
+- Treat the Mac mini as production infrastructure: keep macOS updated, use a stable user account, and monitor launchd service health.
 
-￼
-	3.	Agent routing visibility:
+19\. Recommended rollout plan
 
-openclaw agents list --bindings
-openclaw agents bindings
+11. Install OpenClaw and get one single-agent Slack integration working first.
 
-￼
+12. Create two additional agents and customize their workspace rules.
 
-Fire a test run from CLI
+13. Add one narrow binding for one Slack channel and verify it.
 
-You can test an agent directly:
+14. Add sandboxing and tool restrictions for the public-facing agent.
 
-openclaw agent --agent ops --message "Summarize the last 20 Slack events"
+15. Only then add more channels, more bots, or more aggressive routing rules.
 
-And you can deliver replies to Slack with --deliver and reply routing flags.  ￼
+20\. Quick command checklist
 
-⸻
+> \# install / update  
+> npm install -g openclaw@latest  
+> openclaw onboard --install-daemon  
+> openclaw update  
+> openclaw doctor  
+>   
+> \# channels  
+> openclaw channels list  
+> openclaw channels status --probe  
+> openclaw channels resolve --channel slack "#dev" "@yourname"  
+>   
+> \# agents  
+> openclaw agents add dev  
+> openclaw agents add support  
+> openclaw agents list --bindings  
+> openclaw agents bind --agent support --bind slack:supportbot  
+> openclaw agents unbind --agent support --all  
+>   
+> \# runtime  
+> openclaw gateway  
+> openclaw gateway restart  
+> openclaw logs --follow  
+> openclaw pairing list slack
 
-10) Troubleshooting (Slack + multi-agent)
+Sources used for this guide
 
-Problem: “Slack bot connects but never replies”
-
-Common causes:
-	•	Missing Event Subscriptions or missing required bot events.  ￼
-	•	App Home Messages Tab not enabled (DMs won’t work properly).  ￼
-	•	Bot not invited to the channel (Slack side).
-	•	groupPolicy: "allowlist" but you forgot to allow the channel in channels.slack.channels.  ￼
-	•	You didn’t mention the bot and the channel requires mention (requireMention: true).  ￼
-
-Problem: “DMs show a code instead of responding”
-
-That’s pairing mode. Approve it:
-
-openclaw pairing approve slack <code>
-
-￼
-
-Problem: “Wrong agent responds in Slack”
-	•	Binding precedence is deterministic; most-specific wins. Make sure your peer bindings appear before account-level fallbacks.  ￼
-	•	Check that you’re matching the right peer.kind (direct|channel|group).  ￼
-	•	Verify bindings:
-
-openclaw agents list --bindings
-openclaw agents bindings
-
-
-
-Problem: “Multiple people DM the bot and it leaks context”
-
-Set secure DM mode:
-
-session: { dmScope: "per-channel-peer" }
-
-This is explicitly recommended to avoid cross-user context leakage.  ￼
-
-Problem: “Gateway stuck / port conflict”
-
-The runbook recommends checking for port listeners and using --force if needed.  ￼
-
-⸻
-
-11) Security notes specifically for Slack multi-agent setups
-	•	If “everyone in Slack can message the bot,” the core risk is delegated tool authority: anyone who can talk to an agent can potentially steer its tool usage within that agent’s policy. The official security guide calls this out explicitly for shared Slack workspaces.  ￼
-	•	Keep team-facing Slack agents tool-minimal (often: no host shell, no broad filesystem).
-	•	Consider sandboxing so risky tools execute in containers (reduces blast radius).  ￼
-	•	Run openclaw security audit regularly.  ￼
-
-Also: there was a recent reported vulnerability (“ClawJacked”) involving localhost gateway takeover; multiple security outlets and the researcher report recommend upgrading to a patched version (late Feb 2026 releases and later). Best practice: keep OpenClaw updated to the latest stable.  ￼
-
-⸻
-
-12) A quick “do this now” checklist
-	1.	Create agents
-
-openclaw agents add personal
-openclaw agents add work
-openclaw agents add ops
-
-￼
-	2.	Configure Slack (Socket Mode)
-
-	•	Create Slack app with scopes + bot events + App Home Messages tab.  ￼
-	•	Add channels.slack tokens in ~/.openclaw/openclaw.json.  ￼
-
-	3.	Set DM session isolation
-
-session: { dmScope: "per-channel-peer" }
-
-￼
-	4.	Add bindings (peer bindings first, then fallback)  ￼
-	5.	Restart + probe
-
-openclaw gateway restart
-openclaw channels status --probe
-openclaw agents list --bindings
-
-￼
+This guide was written against the official OpenClaw README, Slack channel guide, multi-agent routing guide, agents CLI guide, channels CLI guide, multi-agent sandbox/tools guide, configuration examples, and current public release/changelog pages as accessed on March 10, 2026.
