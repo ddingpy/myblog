@@ -30,7 +30,7 @@ layout: default
   {% endif %}
 {% endfor %}
 
-<article class="post">
+<article class="post{% if current_category %} post-category-{{ current_category | slugify }}{% endif %}">
   <header>
     <h1>{{ page.title }}</h1>
     <p class="post-meta">
