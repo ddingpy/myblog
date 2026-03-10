@@ -314,21 +314,27 @@ The CLI docs note that a binding without accountId matches only the default acco
 
 If you prefer, use the CLI rather than editing JSON5 manually. The official agents CLI provides bindings commands.
 
-> openclaw agents bindings  
-> openclaw agents bindings --agent dev  
-> openclaw agents bind --agent dev --bind slack  
-> openclaw agents unbind --agent dev --all
+```
+openclaw agents bindings  
+openclaw agents bindings --agent dev  
+openclaw agents bind --agent dev --bind slack  
+openclaw agents unbind --agent dev --all
+```
 
 For account-scoped binding, use the channel:account form.
 
-> openclaw agents bind --agent support --bind slack:supportbot
+```
+openclaw agents bind --agent support --bind slack:supportbot
+```
 
 ## 12. Add identity and behavior per agent
 
 Multi-agent works best when the agents are visibly different. OpenClaw supports setting identity fields such as name, theme, emoji, and avatar, and each workspace can also include an IDENTITY.md file.
 
-> openclaw agents set-identity --agent dev --name "Dev Agent"  
-> openclaw agents set-identity --agent support --name "Support Agent"
+```
+openclaw agents set-identity --agent dev --name "Dev Agent"  
+openclaw agents set-identity --agent support --name "Support Agent"
+```
 
 - Put concise persona and response style rules in SOUL.md.
 - Put operating instructions and workflow rules in AGENTS.md.
@@ -380,17 +386,16 @@ This is one of the most important parts of a production multi-agent setup. OpenC
 
 After configuration changes, restart the Gateway and verify routing before inviting real users.
 
-> openclaw gateway restart  
-> openclaw agents list --bindings  
-> openclaw channels status --probe  
-> openclaw logs --follow
+```
+openclaw gateway restart  
+openclaw agents list --bindings  
+openclaw channels status --probe  
+openclaw logs --follow
+```
 
 7.  Send a DM to the Slack bot and confirm the default agent responds.
-
 8.  Mention the bot in each routed Slack channel and confirm the correct agent responds.
-
 9.  Try a support-channel request that would need a blocked tool and confirm it is denied cleanly.
-
 10. Watch logs for routing, sandbox, and tool policy messages.
 
 ## 15. How to use the system day to day
@@ -404,8 +409,10 @@ In Slack
 
 From the terminal on the Mac mini
 
-> openclaw agent --message "Review this deployment plan" --thinking high  
-> openclaw message send --channel slack --target channel:C1234567890 --message "OpenClaw test message"
+```
+openclaw agent --message "Review this deployment plan" --thinking high  
+openclaw message send --channel slack --target channel:C1234567890 --message "OpenClaw test message"
+```
 
 The CLI is useful for smoke tests, scripted checks, and verifying that an agent itself works before debugging Slack delivery.
 
@@ -481,40 +488,38 @@ channels: {
 ## 19. Recommended rollout plan
 
 11. Install OpenClaw and get one single-agent Slack integration working first.
-
 12. Create two additional agents and customize their workspace rules.
-
 13. Add one narrow binding for one Slack channel and verify it.
-
 14. Add sandboxing and tool restrictions for the public-facing agent.
-
 15. Only then add more channels, more bots, or more aggressive routing rules.
 
 ## 20. Quick command checklist
 
-> \# install / update  
-> npm install -g openclaw@latest  
-> openclaw onboard --install-daemon  
-> openclaw update  
-> openclaw doctor  
->   
-> \# channels  
-> openclaw channels list  
-> openclaw channels status --probe  
-> openclaw channels resolve --channel slack "#dev" "@yourname"  
->   
-> \# agents  
-> openclaw agents add dev  
-> openclaw agents add support  
-> openclaw agents list --bindings  
-> openclaw agents bind --agent support --bind slack:supportbot  
-> openclaw agents unbind --agent support --all  
->   
-> \# runtime  
-> openclaw gateway  
-> openclaw gateway restart  
-> openclaw logs --follow  
-> openclaw pairing list slack
+```
+# install / update  
+npm install -g openclaw@latest  
+openclaw onboard --install-daemon  
+openclaw update  
+openclaw doctor  
+  
+# channels  
+openclaw channels list  
+openclaw channels status --probe  
+openclaw channels resolve --channel slack "#dev" "@yourname"  
+  
+# agents  
+openclaw agents add dev  
+openclaw agents add support  
+openclaw agents list --bindings  
+openclaw agents bind --agent support --bind slack:supportbot  
+openclaw agents unbind --agent support --all  
+  
+# runtime  
+openclaw gateway  
+openclaw gateway restart  
+openclaw logs --follow  
+openclaw pairing list slack
+```
 
 Sources used for this guide
 
