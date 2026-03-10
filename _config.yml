@@ -3,6 +3,7 @@ description: Technical articles, tutorials, and practical life tips.
 url: "https://ddingpy.github.io"
 baseurl: "/mynote"
 timezone: Asia/Seoul
+google_analytics: "G-QWFJXKNR3H"
 
 markdown: kramdown
 highlighter: rouge
