@@ -1,6 +1,6 @@
 ---
 title: "OpenClaw Multi-Agent on Mac mini with Slack"
-date: 2026-03-10 10:31:00 +0000
+date: 2026-03-10 10:31:00 +0900
 tags: [openclaw, slack, mac-mini, multi-agent, guide]
 ---
 
