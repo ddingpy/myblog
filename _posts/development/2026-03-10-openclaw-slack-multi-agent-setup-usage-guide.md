@@ -4,7 +4,7 @@ date: 2026-03-10 10:31:00 +0900
 tags: [openclaw, slack, mac-mini, multi-agent, guide]
 ---
 
-OpenClaw Multi-Agent on Mac mini with Slack
+# OpenClaw Multi-Agent on Mac mini with Slack
 
 Comprehensive setup and usage guide for running multiple isolated OpenClaw agents on macOS and delivering them through Slack.
 
@@ -13,7 +13,7 @@ Prepared: March 10, 2026
 > **What this guide covers  
 > **This guide explains the recommended architecture, installation steps, Slack app setup, multi-agent configuration, routing patterns, operational checks, daily usage, and troubleshooting for OpenClaw on a Mac mini. It assumes you want one always-on OpenClaw Gateway on macOS and one or more isolated agents that answer in Slack.
 
-1\. Recommended architecture
+## 1. Recommended architecture
 
 For a Mac mini deployment, the cleanest model is one OpenClaw Gateway process running continuously on macOS, with Slack connected as a channel and each agent defined as an isolated OpenClaw agent profile. Each agent should have its own workspace, state directory, auth store, and session history. OpenClaw’s routing bindings then decide which Slack traffic goes to which agent.
 
@@ -29,7 +29,7 @@ Good fit scenarios
 - A private deep-work agent plus a general team assistant.
 - A restricted public-facing agent for shared Slack channels and a full-access personal agent for DMs.
 
-2\. What multi-agent means in OpenClaw
+## 2. What multi-agent means in OpenClaw
 
 In OpenClaw, an agent is not just a prompt. It is a fully scoped runtime with its own workspace, agentDir, auth profiles, and session store. OpenClaw documents that each agent has a separate workspace, separate state directory, and sessions under ~/.openclaw/agents/\<agentId\>/sessions. It also warns not to reuse agentDir across agents because that causes auth and session collisions.
 
@@ -41,7 +41,7 @@ In OpenClaw, an agent is not just a prompt. It is a fully scoped runtime with it
 | Slack bindings      | Configurable   | Routes Slack traffic to the correct agent         |
 | Sandbox/tool policy | Yes            | Lets you lock down riskier agents                 |
 
-3\. Prerequisites on the Mac mini
+## 3. Prerequisites on the Mac mini
 
 - macOS with terminal access and admin rights.
 - Node.js 22 or newer, because the OpenClaw install docs require Node \>= 22.
@@ -59,7 +59,7 @@ Before you start: choose one of these deployment shapes
 | Multiple Slack accounts/bots, many agents        | You want visible bot separation in Slack | Each Slack account is bound to a dedicated agent or set of channels                       |
 | One default agent plus one restricted specialist | You want safety with minimal complexity  | Default binding handles most traffic; specific bindings capture sensitive/public channels |
 
-4\. Install OpenClaw on the Mac mini
+## 4. Install OpenClaw on the Mac mini
 
 OpenClaw’s recommended install path is npm and the onboarding wizard. The official README says to install openclaw globally and run openclaw onboard --install-daemon so the Gateway stays running as a macOS launchd user service.
 
@@ -79,7 +79,7 @@ Use the latest stable release available to you. The public changelog currently s
 > openclaw update  
 > openclaw doctor
 
-5\. Create the Slack app
+## 5. Create the Slack app
 
 The Slack guide says OpenClaw’s default Slack mode is Socket Mode. For Socket Mode, you need an App Token (xapp-...) with connections:write and a Bot Token (xoxb-...). It also recommends subscribing to message and reaction events and enabling App Home Messages for DMs.
 
@@ -100,7 +100,7 @@ Slack scopes to include
 
 If you want Slack’s assistant thread status and native text streaming behavior, OpenClaw’s docs say the app must have assistant:write and Slack Agents and AI Apps must be enabled in the app settings. A reply thread also has to exist for native streaming.
 
-6\. Connect Slack to OpenClaw
+## 6. Connect Slack to OpenClaw
 
 For the default account, OpenClaw documents this minimal Socket Mode configuration:
 
@@ -128,7 +128,7 @@ Useful first checks
 > openclaw channels status --probe  
 > openclaw channels list
 
-7\. Create multiple OpenClaw agents
+## 7. Create multiple OpenClaw agents
 
 The official multi-agent guide recommends using the agent helper to create isolated agents. Each new agent gets its own workspace, SOUL.md, AGENTS.md, optional USER.md, dedicated agentDir, and dedicated session store.
 
@@ -145,7 +145,7 @@ After creating them, edit each workspace so the personas are actually different.
 | dev       | Engineering/coding assistant    | SOUL.md, AGENTS.md, local skills/           |
 | support   | Public or team-facing helper    | SOUL.md, AGENTS.md, restricted tools policy |
 
-8\. Choose your routing model
+## 8. Choose your routing model
 
 OpenClaw routing is deterministic and most-specific wins. The official order is: exact peer match, parentPeer match, Discord guild and roles, Discord guild, Slack teamId, accountId match for a channel, channel-level match with accountId '\*', and finally the default agent. This matters because a specific Slack channel binding should appear above a broader fallback binding.
 
@@ -157,7 +157,7 @@ Recommended starting pattern for Slack
 - Do not share agentDir between agents.
 - Use per-agent sandbox/tool restrictions for any agent that interacts with broader audiences.
 
-9\. Example configuration: one Slack workspace, three agents
+## 9. Example configuration: one Slack workspace, three agents
 
 This example is a practical starting point for a Mac mini on one Slack workspace. It uses one default private agent, one engineering agent for a dev channel, and one restricted support agent for a help channel. Replace placeholder IDs after resolving them from Slack.
 
@@ -264,7 +264,7 @@ Use OpenClaw’s channel tools to resolve names and inspect available routing ta
 
 If a resolved channel name does not immediately give you the ID you need, capture it from Slack itself or from OpenClaw logs while sending a test message.
 
-10\. Example configuration: multiple Slack accounts or bots
+## 10. Example configuration: multiple Slack accounts or bots
 
 OpenClaw also supports channel accounts. The channels CLI docs say interactive add can bind configured channel accounts to agents and that account-scoped bindings are first-class. This is useful when you want visible bot separation, such as one Slack app for engineering and another for support.
 
@@ -302,7 +302,7 @@ OpenClaw also supports channel accounts. The channels CLI docs say interactive a
 
 The CLI docs note that a binding without accountId matches only the default account, while accountId '\*' is the all-accounts fallback. That distinction is important when you scale from one Slack bot to several.
 
-11\. Bindings via CLI instead of hand-editing
+## 11. Bindings via CLI instead of hand-editing
 
 If you prefer, use the CLI rather than editing JSON5 manually. The official agents CLI provides bindings commands.
 
@@ -315,7 +315,7 @@ For account-scoped binding, use the channel:account form.
 
 > openclaw agents bind --agent support --bind slack:supportbot
 
-12\. Add identity and behavior per agent
+## 12. Add identity and behavior per agent
 
 Multi-agent works best when the agents are visibly different. OpenClaw supports setting identity fields such as name, theme, emoji, and avatar, and each workspace can also include an IDENTITY.md file.
 
@@ -327,7 +327,7 @@ Multi-agent works best when the agents are visibly different. OpenClaw supports 
 - Keep channel-specific policies minimal and clear.
 - For public agents, prefer shorter answers, fewer tools, and explicit escalation behavior.
 
-13\. Add sandboxing and tool restrictions
+## 13. Add sandboxing and tool restrictions
 
 This is one of the most important parts of a production multi-agent setup. OpenClaw explicitly supports per-agent sandbox configuration and tool restrictions. Its docs show that agent-specific sandbox settings override defaults and that later tool policies can only restrict, not re-grant denied tools.
 
@@ -368,7 +368,7 @@ This is one of the most important parts of a production multi-agent setup. OpenC
 }
 ```
 
-14\. Start, restart, and verify
+## 14. Start, restart, and verify
 
 After configuration changes, restart the Gateway and verify routing before inviting real users.
 
@@ -385,7 +385,7 @@ After configuration changes, restart the Gateway and verify routing before invit
 
 10. Watch logs for routing, sandbox, and tool policy messages.
 
-15\. How to use the system day to day
+## 15. How to use the system day to day
 
 In Slack
 
@@ -408,7 +408,7 @@ Operational habits that help
 - Use narrow bindings first and widen later.
 - Run openclaw doctor after upgrades or after large config edits.
 
-16\. Common routing patterns
+## 16. Common routing patterns
 
 
 | **Pattern**                    | **Binding idea**                                                    | **Example use**                                          |
@@ -418,7 +418,7 @@ Operational habits that help
 | Per-bot separation             | accountId binding                                                   | Different Slack apps for support vs engineering          |
 | Conversation-level override    | Exact peer binding                                                  | One sensitive channel or DM routed to a restricted agent |
 
-17\. Troubleshooting
+## 17. Troubleshooting
 
 No replies in Slack channels
 
@@ -461,7 +461,7 @@ channels: {
 }
 ```
 
-18\. Security and reliability recommendations
+## 18. Security and reliability recommendations
 
 - Update OpenClaw before exposing it to regular Slack traffic.
 - Do not reuse agentDir across agents.
@@ -470,7 +470,7 @@ channels: {
 - Prefer dedicated agents over complicated prompt logic when you need separation of duty.
 - Treat the Mac mini as production infrastructure: keep macOS updated, use a stable user account, and monitor launchd service health.
 
-19\. Recommended rollout plan
+## 19. Recommended rollout plan
 
 11. Install OpenClaw and get one single-agent Slack integration working first.
 
@@ -482,7 +482,7 @@ channels: {
 
 15. Only then add more channels, more bots, or more aggressive routing rules.
 
-20\. Quick command checklist
+## 20. Quick command checklist
 
 > \# install / update  
 > npm install -g openclaw@latest  
