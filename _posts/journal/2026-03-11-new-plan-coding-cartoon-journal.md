@@ -1,5 +1,5 @@
 ---
-title: "We Are All Busy"
+title: "We are all busy."
 date: 2026-03-11 23:22:00 +0900
 tags: [journal, cartoon, coding, roblox]
 ---
