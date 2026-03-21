@@ -238,6 +238,182 @@ Workers runs code globally; KV provides globally distributed, low-latency reads 
 - Strictly transactional workflows
 - Single-record lock/coordination problems
 
+### Private machine-to-machine variant: Worker APIs with no anonymous access
+
+This is the pattern to use when your Worker API is **not** for browsers or public clients. Instead, it should only be called by:
+
+- your external backend programs
+- scheduled jobs
+- CI/CD systems
+- partner backends you explicitly trust
+- other Workers you control
+
+The design goal is simple:
+
+> The API should return `403` or be blocked unless the caller is an explicitly authenticated machine.
+
+### Recommended architecture
+
+```mermaid
+flowchart LR
+    Ext[External backend programs\ncron / CI / trusted servers] -->|Access service token\nor mTLS| Edge[Cloudflare Edge]
+    Anon[Anonymous Internet client] --> Edge
+    Edge -->|Allowed machine traffic| Gateway[Public gateway Worker\napi.example.com]
+    Edge -->|Deny anonymous traffic| Reject[403 / blocked]
+    Gateway -->|Service Binding| InternalA[Internal Worker A\nno public route]
+    Gateway -->|Service Binding| InternalB[Internal Worker B\nno public route]
+    InternalA --> Data[(D1 / KV / R2 / external origin)]
+    WorkerX[Another Worker in your account] -->|Service Binding| InternalA
+```
+
+### Best default design
+
+Use a **two-layer model**:
+
+1. **One public entry Worker** on a stable API hostname such as `api.example.com`.
+2. **Several internal Worker services** behind Service Bindings.
+
+In this model:
+
+- external backend programs call only the public entry Worker
+- the public entry Worker authenticates and authorizes the machine caller
+- internal Workers are not exposed to the public Internet
+- other Workers call internal Workers through Service Bindings instead of public URLs
+
+This keeps your machine-facing edge small and avoids turning every Worker into a separately exposed public API.
+
+### Authentication choice by caller type
+
+| Caller | Best default | Why |
+| --- | --- | --- |
+| Another Worker in the same Cloudflare account | Service Bindings | Private by design, no public URL, no shared secret in transit |
+| External backend program that can send headers | Cloudflare Access service token | Designed for automated systems and service-to-service HTTP access |
+| External backend or agent that can hold client certificates | API Shield mTLS | Strong machine identity at the TLS layer before the request reaches the Worker |
+| Third-party sender that cannot use Access or mTLS | App-level HMAC/JWT validation inside the Worker | Fallback when you must control auth in application code |
+
+### Worker-to-Worker inside Cloudflare: use Service Bindings first
+
+If the caller is another Worker you control, do **not** call the target Worker over its public URL unless you truly need Internet-reachable behavior.
+
+Service Bindings are the better default because they:
+
+- keep the callee off the public Internet
+- avoid anonymous access entirely
+- avoid shared secrets for internal calls
+- support both HTTP-style calls and RPC-style method calls
+
+Minimal `wrangler.toml` example for the caller:
+
+```toml
+[[services]]
+binding = "INTERNAL_API"
+service = "internal-api-worker"
+```
+
+Then the caller can use the binding instead of a public hostname:
+
+```js
+const response = await env.INTERNAL_API.fetch(
+  new Request("https://internal/do-work", request)
+);
+```
+
+### External backend programs: put machine auth at the edge
+
+If the caller lives outside Cloudflare, the strongest default is to require machine authentication **before** the request is treated as valid application traffic.
+
+#### Option A: Cloudflare Access service tokens
+
+This is a strong default for backend-to-backend HTTP calls.
+
+Your external program sends:
+
+```text
+CF-Access-Client-Id: <CLIENT_ID>
+CF-Access-Client-Secret: <CLIENT_SECRET>
+```
+
+Cloudflare Access can evaluate that request with a **Service Auth** policy instead of an end-user login flow.
+
+Practical notes:
+
+- this is for automated systems, not anonymous public callers
+- if your client can only send one header, Access supports reading the service token from a single configured header
+- if the Worker is behind Access, validate the `cf-access-jwt-assertion` header in the Worker using your Access team domain and AUD value
+
+#### Option B: API Shield mTLS
+
+This is a strong choice when the external backend program or agent can safely hold a client certificate.
+
+Use it when:
+
+- you want certificate-based machine identity
+- you control the calling systems
+- you want unauthenticated clients rejected during TLS rather than later in application code
+
+In practice, this is especially attractive for fixed backend programs, internal agents, or controlled partner integrations on a custom API hostname.
+
+#### Option C: Application-level HMAC or JWT validation
+
+Use this only when Access service tokens or mTLS are not a good fit.
+
+If you choose app-level auth:
+
+- sign each request
+- include timestamp and nonce data
+- reject replays
+- rotate secrets
+- do not treat a long-lived static bearer secret as sufficient design on its own
+
+### Recommended request flow
+
+```mermaid
+sequenceDiagram
+    participant Job as External backend program
+    participant Edge as Cloudflare Edge
+    participant Auth as Access Service Auth or mTLS
+    participant Gateway as Public gateway Worker
+    participant Internal as Internal Worker via Service Binding
+
+    Job->>Edge: HTTPS request with service token or client cert
+    Edge->>Auth: Evaluate machine identity
+    alt Authenticated machine
+        Auth->>Gateway: Forward request
+        Gateway->>Gateway: Validate JWT or signature
+        Gateway->>Gateway: Check path, method, scope
+        Gateway->>Internal: Service Binding fetch / RPC
+        Internal-->>Gateway: Response
+        Gateway-->>Job: 200 / 4xx / 5xx
+    else Anonymous or invalid machine
+        Auth-->>Job: 403 / blocked
+    end
+```
+
+### Concrete design rules
+
+If you want the API to be usable **only** by your backend programs and other Workers:
+
+- do not leave internal Workers on public routes unless there is a real need
+- do not rely on obscure paths like `/secret-api-123`
+- do not assume "not linked from the frontend" means private
+- reject missing auth immediately
+- keep CORS closed or absent for machine-only routes
+- apply rate limiting even to authenticated machine APIs
+- log the machine identity, service token ID, or certificate identity for auditability
+
+### Practical blueprint
+
+The most maintainable version usually looks like this:
+
+- `api.example.com` -> gateway Worker
+- gateway Worker protected by Access service token or mTLS
+- gateway Worker validates the caller and normalizes authorization rules
+- gateway Worker fans into internal Workers over Service Bindings
+- internal Workers hold business logic and data access
+- browser clients never call these routes directly
+
+This gives you one externally reachable API edge and a set of private Worker services behind it.
+
 ---
 
 ## Pattern 4: Stateful real-time app with Durable Objects
@@ -784,6 +960,7 @@ A strong Cloudflare architecture often uses **multiple** data products together:
 - Start with Pattern 2 or 8
 - Add Pattern 5 for uploads
 - Add Pattern 7 for async jobs
+- If an API is machine-only, use Pattern 3's private machine-to-machine variant instead of leaving the Worker anonymous
 
 ### Global realtime product
 
@@ -801,6 +978,7 @@ A strong Cloudflare architecture often uses **multiple** data products together:
 - Start with Pattern 1 or 13
 - Add Pattern 9 for edge APIs over existing databases
 - Add Pattern 10 for private admin access
+- For backend-to-backend APIs, prefer Service Bindings internally and Access service tokens or mTLS for external callers
 
 ---
 
@@ -833,6 +1011,18 @@ For many internal tools, Access + Tunnel is simpler and safer than broad network
 ### 7) Ignoring cache design
 
 Cloudflare’s value often depends on cache keys, cache eligibility, headers, image strategy, and static-vs-dynamic separation.
+
+### 8) Exposing machine-only Worker APIs anonymously
+
+If the endpoint is only meant for backend programs or other Workers, do not leave it as a public anonymous HTTP endpoint.
+
+Prefer:
+
+- Service Bindings for Worker-to-Worker calls
+- Access service tokens for external automated callers
+- mTLS for strong machine identity on supported API clients
+
+Only fall back to app-level shared-secret verification when the caller cannot use the stronger patterns.
 
 ---
 
@@ -881,7 +1071,9 @@ If you want to **try Cloudflare** with minimal setup, choose one of these:
 - **Durable Objects** is for coordination-heavy state.
 - **Queues** is for decoupled asynchronous work.
 - **Hyperdrive** helps Workers talk efficiently to existing databases.
+- **Service Bindings** are the default for private Worker-to-Worker calls.
 - **Access + Tunnel** is a strong default for private app exposure.
+- **Access service tokens** and **API Shield mTLS** are strong defaults for non-anonymous machine-to-machine API access.
 
 ---
 
@@ -891,12 +1083,15 @@ This guide is grounded in Cloudflare’s official docs and reference architectur
 
 - Cloudflare Docs overview
 - Workers overview
+- Service Bindings docs
 - Workers storage selection
 - KV docs and how KV works
 - Durable Objects overview, concepts, examples, and best practices
 - R2 overview, how R2 works, and R2 demos/reference architectures
 - Queues overview
 - Hyperdrive overview
+- Access service tokens and JWT validation docs
+- API Shield mTLS docs
 - Tunnel docs
 - Cloudflare Reference Architecture hub, diagrams, design guides, implementation guides, SASE architecture, content-delivery/image-delivery patterns, storage patterns, and programmable platforms
 
