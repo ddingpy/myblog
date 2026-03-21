@@ -470,6 +470,30 @@ th {
   padding: 0;
 }
 
+.post pre.mermaid,
+.post div.mermaid {
+  background: #ffffff;
+  border-left-color: #36c;
+  overflow-x: auto;
+  padding: 1rem;
+  white-space: normal;
+}
+
+.post pre.mermaid svg,
+.post div.mermaid svg {
+  display: block;
+  height: auto;
+  margin: 0 auto;
+  max-width: 100%;
+}
+
+.post pre.mermaid[data-mermaid-error="true"],
+.post div.mermaid[data-mermaid-error="true"] {
+  background: #fff8f8;
+  border-left-color: #d33;
+  white-space: pre-wrap;
+}
+
 .post blockquote {
   border-left: 4px solid #eaecf0;
   color: inherit;

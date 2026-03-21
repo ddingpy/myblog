@@ -1,5 +1,15 @@
 <!doctype html>
 <html lang="en">
+  {% assign page_source = page.content | default: '' %}
+  {% assign rendered_content = content | default: '' %}
+  {% assign mermaid_enabled = page.mermaid %}
+  {% unless mermaid_enabled %}
+    {% if page_source contains '```mermaid' %}
+      {% assign mermaid_enabled = true %}
+    {% elsif rendered_content contains 'language-mermaid' or rendered_content contains 'class="mermaid"' %}
+      {% assign mermaid_enabled = true %}
+    {% endif %}
+  {% endunless %}
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -59,5 +69,9 @@
         <p>&copy; {{ site.time | date: '%Y' }} {{ site.title }}.</p>
       </div>
     </footer>
+    {% if mermaid_enabled %}
+      <script defer src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+      <script defer src="{{ '/assets/js/mermaid.js' | relative_url }}"></script>
+    {% endif %}
   </body>
 </html>
