@@ -1,12 +1,22 @@
 ---
 title: "Cloudflare: A Comprehensive Practical Guide"
 date: 2026-03-19 20:07:00 +0900
-tags: [cloudflare, dns, cdn, security, zero-trust, workers, pages, r2]
+tags: [cloudflare, dns, cdn, waf, zero-trust, sase, workers, pages, r2, mermaid]
 ---
 
 # Cloudflare: A Comprehensive Practical Guide
 
-_Last updated: 2026-03-19_
+_Last updated: 2026-03-21_
+
+This guide explains Cloudflare from the practical operator view:
+
+- where it sits in your architecture
+- what each major product family is for
+- how WAF, Tunnel, Access, and WARP fit together
+- when Zero Trust and SASE matter
+- how to start without overcomplicating the rollout
+
+---
 
 ## Table of contents
 
@@ -21,55 +31,85 @@ _Last updated: 2026-03-19_
 9. [Path D: Use Cloudflare R2 object storage](#path-d-use-cloudflare-r2-object-storage)
 10. [Path E: Use Cloudflare Zero Trust for internal access](#path-e-use-cloudflare-zero-trust-for-internal-access)
 11. [Path F: Use 1.1.1.1 / WARP as an individual](#path-f-use-1111--warp-as-an-individual)
-12. [Security fundamentals and best practices](#security-fundamentals-and-best-practices)
-13. [Performance and caching fundamentals](#performance-and-caching-fundamentals)
-14. [Developer platform overview](#developer-platform-overview)
-15. [Pricing and plan selection guidance](#pricing-and-plan-selection-guidance)
-16. [When Cloudflare is a good fit and when it is not](#when-cloudflare-is-a-good-fit-and-when-it-is-not)
-17. [Troubleshooting checklist](#troubleshooting-checklist)
-18. [Suggested learning path](#suggested-learning-path)
-19. [Glossary](#glossary)
-20. [Official references](#official-references)
+12. [WAF explained simply](#waf-explained-simply)
+13. [Zero Trust and SASE mental model](#zero-trust-and-sase-mental-model)
+14. [Security fundamentals and best practices](#security-fundamentals-and-best-practices)
+15. [Performance and caching fundamentals](#performance-and-caching-fundamentals)
+16. [Developer platform overview](#developer-platform-overview)
+17. [Pricing and plan selection guidance](#pricing-and-plan-selection-guidance)
+18. [When Cloudflare is a good fit and when it is not](#when-cloudflare-is-a-good-fit-and-when-it-is-not)
+19. [Troubleshooting checklist](#troubleshooting-checklist)
+20. [Suggested learning path](#suggested-learning-path)
+21. [Example adoption blueprints](#example-adoption-blueprints)
+22. [Common mistakes to avoid](#common-mistakes-to-avoid)
+23. [Glossary](#glossary)
+24. [Recommended "first 30 minutes" checklist](#recommended-first-30-minutes-checklist)
+25. [How to decide what to try first](#how-to-decide-what-to-try-first)
+26. [Official references](#official-references)
 
 ---
 
 ## What Cloudflare is
 
-Cloudflare is an edge network and application platform that sits between users and Internet services, or directly hosts code and content on its own platform.
+Cloudflare is an edge network and application platform. Sometimes it sits in front of your existing servers. Sometimes it becomes the platform where parts of the application itself run.
 
-Depending on what you enable, Cloudflare can act as:
+In practical terms, Cloudflare can be:
 
-- an authoritative DNS provider
-- a reverse proxy in front of your website or API
-- a CDN and cache
-- a DDoS mitigation and web security layer
-- a Zero Trust access layer for internal apps and networks
-- a serverless compute platform for apps and APIs
-- an object storage and data platform for cloud-native workloads
-- a consumer network privacy tool through 1.1.1.1 and WARP
+- your DNS provider
+- your reverse proxy and CDN
+- your TLS and WAF layer
+- your DDoS and rate-limiting layer
+- your Zero Trust access layer
+- your serverless app platform
+- your object storage and edge data platform
+- your personal DNS/privacy client through 1.1.1.1 and WARP
 
-The easiest way to think about Cloudflare is this:
+The simplest mental model is:
 
-> Cloudflare gives you a globally distributed control plane and data plane for traffic, security, performance, and application delivery.
+> Cloudflare is the globally distributed layer between users, applications, and private infrastructure.
+
+```mermaid
+flowchart LR
+    Users[Users / bots / API clients] --> Edge[Cloudflare Edge\nDNS + CDN + TLS + WAF]
+    Edge --> Origin[Origin server / load balancer]
+    Edge --> Apps[Workers / Pages]
+    Apps --> Data[R2 / D1 / KV / Durable Objects]
+    Team[Employees / admins] --> ZT[Zero Trust\nAccess + Gateway + WARP + Tunnel]
+    ZT --> Private[Private apps / internal services]
+```
 
 ---
 
 ## How Cloudflare works
 
-At a high level, Cloudflare usually fits into one of four models:
+At a high level, Cloudflare usually fits into one of four models.
+
+```mermaid
+flowchart TB
+    Start[How are you using Cloudflare?] --> DNS[1. DNS only]
+    Start --> Proxy[2. Reverse proxy]
+    Start --> EdgeApps[3. Edge-hosted apps]
+    Start --> Private[4. Private connectivity]
+    DNS --> DNSUse[Fast authoritative DNS,\nDNSSEC, analytics]
+    Proxy --> ProxyUse[CDN, TLS, WAF,\nrate limiting, DDoS]
+    EdgeApps --> EdgeUse[Workers, Pages,\nserverless app delivery]
+    Private --> PrivateUse[Tunnel, Access,\nGateway, WARP]
+```
 
 ### 1. DNS only
-You use Cloudflare as your DNS provider, but traffic goes directly to your origin.
+
+You use Cloudflare as your authoritative DNS provider, but traffic still goes directly to your origin.
 
 Use this when you want:
 
-- fast authoritative DNS
-- central record management
-- DNSSEC and DNS analytics
-- no reverse proxy behavior yet
+- faster DNS
+- centralized record management
+- DNSSEC
+- no reverse-proxy behavior yet
 
 ### 2. Reverse proxy for web traffic
-You point your domain to Cloudflare and enable proxying for HTTP/HTTPS records. Users connect to Cloudflare first, and Cloudflare forwards requests to your origin.
+
+You proxy `A`, `AAAA`, or `CNAME` records. Users connect to Cloudflare first, then Cloudflare forwards the request to your origin.
 
 This enables:
 
@@ -77,186 +117,169 @@ This enables:
 - SSL/TLS management
 - WAF
 - bot and DDoS protection
-- rules and edge behavior
-- origin shielding and IP masking in some setups
+- request rules and edge behavior
 
 ### 3. Edge-hosted applications
-Instead of only protecting an origin, you deploy code directly on Cloudflare using Workers, Pages, or related products.
+
+Instead of only protecting an origin, you deploy code directly on Cloudflare through Workers, Pages, and related data products.
 
 This enables:
 
 - serverless APIs
-- full-stack apps
-- static and dynamic sites
-- background jobs, queues, stateful coordination, and storage integrations
+- frontend hosting
+- middleware and request transformation
+- background jobs and globally distributed app logic
 
 ### 4. Private connectivity and Zero Trust
-Instead of exposing an origin publicly, you connect private apps, networks, or devices to Cloudflare using Tunnel, WARP, Access, Gateway, and related Zero Trust features.
+
+Instead of exposing a service publicly, you connect private apps, networks, or users to Cloudflare with Tunnel, Access, Gateway, and WARP.
 
 This enables:
 
-- replacing VPNs for many use cases
-- identity-aware access to internal apps
-- outbound-only connectors instead of inbound public exposure
+- replacing VPN-heavy patterns
+- identity-aware access
+- outbound-only connectors
 - filtering and securing user Internet traffic
+
+### What a proxied request looks like
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant CF as Cloudflare Edge
+    participant Origin as Origin Server
+
+    User->>CF: HTTPS request
+    CF->>CF: TLS, WAF, rules, cache lookup
+    alt Cache hit
+        CF-->>User: Cached response
+    else Cache miss
+        CF->>Origin: Forward request
+        Origin-->>CF: Response
+        CF-->>User: Response
+    end
+```
 
 ---
 
 ## Cloudflare product map
 
-Cloudflare has a wide product surface. The easiest way to understand it is by category.
+Cloudflare has a wide surface area. It becomes easier to understand if you group products by architectural role.
+
+```mermaid
+flowchart TB
+    CF[Cloudflare] --> Core[Website edge]
+    Core --> DNS[DNS]
+    Core --> CDN[CDN / Cache]
+    Core --> TLS[TLS / certificates]
+    Core --> WAF[WAF]
+    Core --> DDoS[DDoS protection]
+    Core --> Rules[Rules / rate limiting]
+
+    CF --> ZT[Zero Trust / SASE]
+    ZT --> Access[Access]
+    ZT --> Gateway[Gateway]
+    ZT --> Tunnel[Tunnel]
+    ZT --> WARP[WARP]
+
+    CF --> Dev[Developer platform]
+    Dev --> Workers[Workers]
+    Dev --> Pages[Pages]
+    Dev --> R2[R2]
+    Dev --> D1[D1]
+    Dev --> KV[KV]
+    Dev --> DO[Durable Objects]
+    Dev --> Queues[Queues / Workflows]
+```
 
 ### Core website and network services
 
-#### Cloudflare DNS
-Authoritative DNS for your domain. Often the first product people use.
-
-Best for:
-
-- moving DNS management to Cloudflare
-- gaining DNS analytics
-- preparing to proxy traffic through Cloudflare
-
-#### Proxy / CDN / Cache
-When a DNS record is proxied, Cloudflare responds with anycast IPs and applies edge delivery and protection for HTTP/S traffic.
-
-Best for:
-
-- faster global content delivery
-- reduced origin load
-- cacheable static assets
-- edge caching policies
-
-#### SSL/TLS
-Cloudflare can provide certificates to users and can also secure the connection between Cloudflare and your origin.
-
-Best for:
-
-- automatic HTTPS
-- certificate management simplification
-- stronger origin encryption using Origin CA in many setups
-
-#### WAF and rules
-Cloudflare WAF checks requests against managed and custom rulesets. You can also use rate limiting and other rule engines.
-
-Best for:
-
-- blocking common web attacks
-- reducing attack surface for websites and APIs
-- creating policy-based request handling
-
-#### DDoS protection
-Cloudflare provides network and application-layer protections across its edge.
-
-Best for:
-
-- absorbing volumetric attacks
-- protecting websites, APIs, and edge applications
+- **DNS**: authoritative DNS for your domain
+- **Proxy / CDN / Cache**: reverse proxy and edge caching
+- **SSL/TLS**: certificates and encrypted traffic management
+- **WAF and rules**: HTTP request filtering and policy logic
+- **DDoS protection**: network and app-layer mitigation
 
 ### Zero Trust and private connectivity
 
-#### Cloudflare Access
-Identity-aware access control for internal apps.
-
-Best for:
-
-- protecting admin panels, staging sites, dashboards, SSH, and internal tools
-- requiring login through an IdP before users can access an application
-
-#### Cloudflare Tunnel
-A lightweight connector (`cloudflared`) creates outbound-only connections to Cloudflare so you do not need a publicly reachable origin IP.
-
-Best for:
-
-- exposing a local web app securely
-- publishing internal services without opening inbound firewall ports
-- hiding your public origin
-
-#### Cloudflare Gateway
-Secure web gateway and filtering for user egress traffic.
-
-Best for:
-
-- DNS filtering
-- HTTP inspection and policy control
-- secure Internet access for teams
-
-#### WARP for Zero Trust
-Endpoint client for routing device traffic through Cloudflare policies.
-
-Best for:
-
-- device-aware access control
-- replacing or reducing dependency on traditional VPNs
+- **Access**: who can reach an app
+- **Tunnel**: how a private app reaches Cloudflare without opening inbound ports
+- **Gateway**: how user traffic is filtered on the way out
+- **WARP**: how endpoints route traffic through policy enforcement
 
 ### Developer platform
 
-#### Workers
-Serverless compute on Cloudflare’s edge.
-
-Best for:
-
-- APIs
-- request/response manipulation
-- edge authentication and routing
-- full-stack applications
-- cron jobs and background logic
-
-#### Pages
-Static hosting and front-end deployment platform, often with Git integration and preview deployments.
-
-Best for:
-
-- JAMstack and frontend apps
-- framework-based deployments
-- rapid iteration with previews per pull request
-
-#### Storage and data products
-
-- **R2**: object storage for files, media, uploads, backups, artifacts
-- **KV**: globally distributed key-value reads for configuration/session-like patterns
-- **Durable Objects**: strongly coordinated stateful compute
-- **D1**: serverless SQL database for app workloads
-- **Hyperdrive**: acceleration layer for existing databases accessed from Workers
-- **Queues / Workflows**: async processing and orchestration
-
-### Consumer networking
-
-#### 1.1.1.1
-Cloudflare public resolver for faster and more private DNS resolution.
-
-#### WARP
-Client app that routes device traffic in a way intended to improve security and privacy, with multiple connection modes.
+- **Workers**: serverless edge compute
+- **Pages**: frontend and static deployment
+- **R2**: object storage
+- **KV**: global read-heavy key-value data
+- **Durable Objects**: coordinated stateful compute
+- **D1**: SQL app data
+- **Queues / Workflows**: background processing and orchestration
 
 ---
 
 ## Who should use Cloudflare
 
-Cloudflare can be useful for several very different audiences.
+Cloudflare is useful for several very different audiences.
 
 ### Website owners
-You have a site or API on a VPS, cloud VM, PaaS, or managed hosting platform and want:
 
-- better speed globally
-- HTTPS and certificates
+You want:
+
+- better global performance
+- HTTPS and certificate management
 - WAF and bot protection
 - DNS management
 - DDoS mitigation
 
 ### Developers and startups
-You want to build with edge compute, serverless APIs, static hosting, and managed storage.
+
+You want:
+
+- frontend hosting
+- serverless APIs
+- edge logic
+- storage and data services that sit near the app platform
 
 ### IT and security teams
-You want to secure private applications, reduce public exposure, filter traffic, and replace VPN-heavy patterns.
+
+You want:
+
+- secure access to private apps
+- less public exposure
+- fewer VPN dependencies
+- traffic filtering and identity-aware access control
 
 ### Individuals
-You want better DNS privacy or to use the WARP client on your personal device.
+
+You want:
+
+- faster DNS
+- privacy-minded DNS resolution
+- a simpler secure connectivity client on your laptop or phone
 
 ---
 
 ## Common ways to start using Cloudflare
 
-Most people should begin with one of these paths:
+Most people should begin with the path that matches the outcome they want this week.
+
+```mermaid
+flowchart TD
+    Need[What do you want to do first?] --> Website[Protect or speed up a website]
+    Need --> PrivateService[Expose a private app safely]
+    Need --> NewApp[Deploy a new app]
+    Need --> Storage[Store files or uploads]
+    Need --> Internal[Protect internal tools]
+    Need --> Personal[Use safer personal connectivity]
+    Website --> A[Path A]
+    PrivateService --> B[Path B]
+    NewApp --> C[Path C]
+    Storage --> D[Path D]
+    Internal --> E[Path E]
+    Personal --> F[Path F]
+```
 
 1. **Website path**: move DNS and proxy your domain through Cloudflare.
 2. **Private service path**: expose an internal or local app through Cloudflare Tunnel.
@@ -267,18 +290,27 @@ Most people should begin with one of these paths:
 
 If you are unsure where to begin, choose the one closest to your immediate goal:
 
-- “I want to speed up and protect my website” → Path A
-- “I want to access a private/local app from the Internet safely” → Path B
-- “I want to deploy a new app” → Path C
-- “I need cloud object storage” → Path D
-- “I want SSO-gated access to internal apps” → Path E
-- “I want private DNS / safer browsing on my laptop or phone” → Path F
+- "I want to speed up and protect my website" -> Path A
+- "I want to access a private/local app from the Internet safely" -> Path B
+- "I want to deploy a new app" -> Path C
+- "I need cloud object storage" -> Path D
+- "I want SSO-gated access to internal apps" -> Path E
+- "I want private DNS / safer browsing on my laptop or phone" -> Path F
 
 ---
 
 ## Path A: Put an existing website behind Cloudflare
 
 This is the most common entry point.
+
+### What happens architecturally
+
+```mermaid
+flowchart LR
+    Visitor[Visitor] --> CF[Cloudflare Edge\nProxy + CDN + TLS + WAF]
+    CF --> Origin[Origin web server]
+    Origin --> DB[(App database)]
+```
 
 ### What you need
 
@@ -292,92 +324,90 @@ This is the most common entry point.
 1. Add your domain to Cloudflare.
 2. Cloudflare scans common DNS records.
 3. Review and fix DNS records.
-4. Update nameservers at your registrar to the ones Cloudflare provides.
-5. Decide which DNS records should be proxied.
+4. Update nameservers at your registrar.
+5. Decide which records should be proxied.
 6. Configure SSL/TLS mode.
 7. Test the site.
-8. Enable security and caching features gradually.
+8. Enable security and caching gradually.
 
-### Proxy vs DNS-only records
+### Proxied vs DNS-only records
 
-A DNS record that is **proxied** sends web traffic through Cloudflare’s network. This is where CDN, WAF, DDoS mitigation, and many rules apply.
+```mermaid
+flowchart LR
+    User1[User] --> Proxied[Proxied record]
+    Proxied --> Features[Cloudflare CDN,\nTLS, WAF, rules]
+    Features --> Origin1[Origin]
 
-A **DNS-only** record resolves directly to your origin and does not receive reverse-proxy features.
+    User2[User] --> DNSOnly[DNS-only record]
+    DNSOnly --> Origin2[Origin directly]
+```
+
+A proxied record sends web traffic through Cloudflare. This is where CDN, WAF, DDoS protection, rate limiting, and many rules apply.
+
+A DNS-only record resolves directly to your origin and does not receive reverse-proxy protections.
 
 ### Recommended first settings
 
 For a normal website:
 
 - keep your main `A`, `AAAA`, or `CNAME` for `www` proxied
-- use **Full (strict)** SSL/TLS if your origin has a valid certificate or Cloudflare Origin CA setup
+- use **Full (strict)** SSL/TLS if your origin has a valid certificate or Origin CA setup
 - turn on automatic HTTPS redirects if appropriate
 - enable WAF managed rules
 - start with conservative caching rules
-- set up DNSSEC if your registrar supports it cleanly
+- set up DNSSEC if your registrar setup is clean
 
 ### SSL/TLS mode guidance
 
-- **Flexible**: avoid unless you have no other option; Cloudflare to origin is not properly encrypted
+- **Flexible**: avoid unless you have no other option
 - **Full**: encrypted to the origin, but certificate validation is looser
-- **Full (strict)**: best default for production if your origin cert is valid
+- **Full (strict)**: best default for production
 
 ### Important caution
 
-If you proxy your app through Cloudflare but still leave the origin publicly reachable, attackers may bypass some protections by hitting the origin directly. Consider:
+If the app is proxied through Cloudflare but the origin is still publicly reachable, attackers may bypass some protections by hitting the origin directly.
+
+Consider:
 
 - firewall rules that allow only Cloudflare IP ranges
-- using Tunnel where possible
-- restricting admin paths with Access
+- Tunnel where possible
+- Access for admin or staging routes
 
 ### Good first-week rollout plan
 
-Day 1:
-
-- add domain
-- confirm DNS records
-- set SSL/TLS to Full (strict)
-- validate site loading
-
-Day 2:
-
-- enable WAF managed rules
-- add basic rate limiting for login/API hotspots
-- review bot and security events
-
-Day 3:
-
-- add caching rules for static assets
-- review headers, redirects, compression, and image optimization options
-
-Day 4:
-
-- lock down origin exposure
-- add Access in front of admin or staging routes
+```mermaid
+flowchart LR
+    Day1[Day 1\nOnboard domain\nSet Full strict] --> Day2[Day 2\nEnable WAF\nAdd rate limits]
+    Day2 --> Day3[Day 3\nAdd cache rules\nReview events]
+    Day3 --> Day4[Day 4\nRestrict origin\nProtect admin]
+```
 
 ---
 
 ## Path B: Publish a local or private service with Cloudflare Tunnel
 
-Cloudflare Tunnel is one of the easiest and most useful Cloudflare products.
+Cloudflare Tunnel is one of the easiest high-value products in the platform.
 
 ### Why use it
 
-Instead of opening inbound firewall ports and exposing your origin directly, you run `cloudflared` on your server or local machine. It makes outbound-only connections to Cloudflare, and Cloudflare routes traffic to your service.
+Instead of opening inbound firewall ports, you run `cloudflared` on your server or local machine. It creates outbound-only connections to Cloudflare, and Cloudflare routes traffic to your service.
 
 This is excellent for:
 
 - home lab dashboards
 - internal web tools
-- SSH or RDP access patterns
 - staging apps
 - internal APIs
+- SSH or RDP access patterns
 
 ### Basic concept
 
-- your service runs locally, for example on `http://localhost:8080`
-- `cloudflared` connects outward to Cloudflare
-- users connect to a hostname you control
-- Cloudflare forwards traffic through the tunnel to your local service
+```mermaid
+flowchart LR
+    User[User] --> CF[Cloudflare Edge]
+    Service[Local service\nlocalhost:8080] --> Tunnel[cloudflared\noutbound tunnel]
+    Tunnel --> CF
+```
 
 ### Typical setup flow
 
@@ -385,9 +415,21 @@ This is excellent for:
 2. Install `cloudflared` on the machine hosting the service.
 3. Authenticate `cloudflared`.
 4. Create a tunnel.
-5. Map a hostname like `app.example.com` to your local service.
+5. Map a hostname like `app.example.com` to the local service.
 6. Start the tunnel.
 7. Optionally protect the hostname with Access.
+
+### Best-practice pattern
+
+For sensitive services, combine Tunnel and Access.
+
+```mermaid
+flowchart LR
+    User[User] --> Access[Cloudflare Access]
+    Access --> CF[Cloudflare Edge]
+    App[Private app] --> Tunnel[cloudflared]
+    Tunnel --> CF
+```
 
 ### When Tunnel is especially strong
 
@@ -397,19 +439,22 @@ Use Tunnel when you want:
 - a quick secure way to expose a development or internal app
 - simpler origin security than a directly exposed server
 
-### Best practice
-
-For sensitive services, combine:
-
-- **Tunnel** for connectivity
-- **Access** for identity checks
-- optional **WARP** for device posture and private routing
-
 ---
 
 ## Path C: Deploy a frontend or full-stack app on Cloudflare Pages / Workers
 
 This is the best path when you are building something new.
+
+### Architecture pattern
+
+```mermaid
+flowchart TB
+    Git[Git push] --> Pages[Pages build and deploy]
+    User[User] --> Edge[Cloudflare Edge]
+    Edge --> Pages
+    Edge --> Worker[Workers API / middleware]
+    Worker --> Data[(R2 / D1 / KV / Durable Objects)]
+```
 
 ### Use Pages when
 
@@ -428,10 +473,10 @@ This is the best path when you are building something new.
 
 1. Create a repository.
 2. Connect it to Cloudflare Pages, or use direct upload/C3.
-3. Configure build command and output directory.
+3. Configure the build command and output directory.
 4. Deploy to a `*.pages.dev` subdomain.
 5. Attach your custom domain.
-6. Enable previews for pull requests.
+6. Enable preview deployments.
 
 ### Typical Workers workflow
 
@@ -441,34 +486,32 @@ This is the best path when you are building something new.
 4. Configure bindings and secrets.
 5. Deploy with the CLI.
 
-### Example use cases
+### Common combinations
 
-#### Pages only
-- docs site
-- marketing site
-- frontend SPA
-
-#### Workers only
-- webhook endpoint
-- API gateway
-- signed image URL service
-- edge auth layer
-
-#### Pages + Workers + data
-- SaaS app frontend on Pages
-- API routes on Workers
-- uploads in R2
-- app state in D1 / Durable Objects / KV depending on pattern
-
-### Key advantage
-
-Workers and Pages are not just hosting products. They are tightly integrated with a broader runtime and data ecosystem, which makes Cloudflare attractive for globally distributed apps.
+- **Pages only**: docs site, marketing site, frontend SPA
+- **Workers only**: webhook endpoint, API gateway, signed URL service
+- **Pages + Workers + data**: SaaS frontend, edge APIs, uploads, app state
 
 ---
 
 ## Path D: Use Cloudflare R2 object storage
 
-R2 is Cloudflare’s object storage service.
+R2 is Cloudflare's object storage service.
+
+### A very common R2 pattern
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant App as Worker or API
+    participant R2 as Cloudflare R2
+
+    User->>App: Request upload permission
+    App->>R2: Generate signed upload
+    App-->>User: Return signed URL
+    User->>R2: Upload object directly
+    R2-->>App: Optional metadata or event flow
+```
 
 ### Good use cases
 
@@ -477,11 +520,14 @@ R2 is Cloudflare’s object storage service.
 - build artifacts
 - backups and archives
 - application content storage
-- storage behind CDN-delivered apps
 
 ### Why people choose it
 
-The biggest appeal is usually cost structure and Cloudflare ecosystem fit, especially for public content delivery and application integration.
+The appeal is usually:
+
+- object storage integrated with the rest of Cloudflare
+- good fit for uploads and public asset delivery
+- cleaner application patterns when paired with Workers
 
 ### Typical setup flow
 
@@ -489,26 +535,20 @@ The biggest appeal is usually cost structure and Cloudflare ecosystem fit, espec
 2. Decide whether objects are private or public.
 3. Upload via dashboard, CLI, S3-compatible tools, or Workers.
 4. Optionally bind the bucket to a Worker.
-5. Serve content through your application or through appropriate public delivery patterns.
+5. Serve content intentionally through your application or public delivery pattern.
 
 ### Design notes
 
-- R2 is object storage, not a general-purpose file system
-- bucket object naming matters for organization
+- R2 is object storage, not a file system
+- object naming matters for organization
 - access control design matters early
-- public delivery should be planned intentionally
-
-### Good pairing patterns
-
-- **R2 + Workers** for upload/download authorization
-- **R2 + Pages** for app asset flows
-- **R2 + Images/Stream** depending on media requirements and product choice
+- binary data and metadata should be designed together
 
 ---
 
 ## Path E: Use Cloudflare Zero Trust for internal access
 
-If you manage internal tools, Cloudflare Zero Trust may be the most valuable part of the platform.
+If you manage internal tools, this may be the most valuable part of Cloudflare.
 
 ### Main components
 
@@ -521,31 +561,33 @@ If you manage internal tools, Cloudflare Zero Trust may be the most valuable par
 
 Protect an internal dashboard without opening it publicly.
 
-#### Example pattern
+```mermaid
+flowchart LR
+    User[Employee / contractor] --> Access[Cloudflare Access]
+    IdP[Google / Okta / Entra ID] --> Access
+    Access --> CF[Cloudflare Edge]
+    App[Private dashboard] --> Tunnel[cloudflared]
+    Tunnel --> CF
+```
 
-- dashboard is on a private VM or local server
-- `cloudflared` publishes it via Tunnel
-- Access requires login through Google, Okta, Microsoft Entra ID, or another IdP
-- only users in specific groups can access it
+### Why teams like this model
 
-### Benefits over a traditional VPN-only model
-
-- easier app-specific policies
-- less broad network exposure
-- identity-aware access at the application layer
-- simpler user experience for many web apps
+- access is per app, not per network
+- the origin does not need to be publicly open
+- login can be delegated to your identity provider
+- policy can include user, group, device, and context
 
 ### Good first targets for Access
 
 - `/admin`
 - `/staging`
-- Jenkins, Grafana, Kibana, internal wiki, BI dashboards
+- Grafana, Kibana, Jenkins, internal wiki, BI dashboards
 - SSH access patterns
 - private APIs
 
 ### Zero Trust onboarding notes
 
-During initial setup, you create a team domain such as `your-team.cloudflareaccess.com`, then connect an identity provider and define access policies.
+During initial setup, you create a team domain such as `your-team.cloudflareaccess.com`, connect an identity provider, and define access policies.
 
 ---
 
@@ -553,44 +595,259 @@ During initial setup, you create a team domain such as `your-team.cloudflareacce
 
 This is the simplest way for a non-admin to use Cloudflare.
 
+```mermaid
+flowchart LR
+    Device[Phone / laptop] --> DNS[1.1.1.1 DNS mode]
+    Device --> WARP[WARP mode]
+    DNS --> CF[Cloudflare network]
+    WARP --> CF
+```
+
 ### 1.1.1.1
-A public DNS resolver intended to improve speed and privacy compared with many default ISP DNS configurations.
+
+A public DNS resolver intended to improve speed and privacy compared with many default ISP DNS setups.
 
 ### WARP
-A client that can route your device traffic in ways intended to improve privacy and security. It has different modes depending on how you want traffic handled.
+
+A client that can route device traffic in ways intended to improve privacy and security. It is not best understood as a generic geo-unblocking VPN.
 
 ### Good use cases
 
-- safer browsing on public Wi‑Fi
+- safer browsing on public Wi-Fi
 - privacy-minded DNS usage
-- simplified protection for a personal device
+- simplified security for a personal device
 
-### Important caveat
+---
 
-WARP is not identical to a traditional “pick-a-country” consumer VPN product. Treat it as a Cloudflare network client focused on connectivity, privacy, and security characteristics rather than as a generic geo-unblocking tool.
+## WAF explained simply
+
+WAF stands for **Web Application Firewall**.
+
+### Simple definition
+
+A WAF protects your website or API from malicious HTTP/HTTPS traffic by inspecting and filtering requests before they reach your server.
+
+### Where it sits
+
+```mermaid
+flowchart LR
+    User[User / bot / attacker] --> WAF[Cloudflare Edge WAF]
+    WAF --> Origin[Your website or API]
+```
+
+Think of it as a security guard in front of your app:
+
+- every request goes through the WAF first
+- the WAF checks if it looks dangerous
+- if yes, it can block or challenge it
+- if no, it forwards the request to the origin
+
+### What the WAF actually does
+
+```mermaid
+flowchart TD
+    Request[Incoming HTTP request] --> Inspect{Managed rules\nCustom rules\nBot checks\nRate limits}
+    Inspect -->|Looks safe| Allow[Allow to origin]
+    Inspect -->|Suspicious| Challenge[Challenge]
+    Inspect -->|Malicious| Block[Block at edge]
+```
+
+### What kinds of attacks it helps stop
+
+```mermaid
+flowchart TB
+    WAF[Layer 7 protection] --> SQLi[SQL injection]
+    WAF --> XSS[Cross-site scripting]
+    WAF --> RCE[Command injection / RCE attempts]
+    WAF --> Bots[Bad bots / scraping]
+    WAF --> Stuffing[Credential stuffing]
+    WAF --> OWASP[Known OWASP patterns]
+```
+
+### Without WAF vs with WAF
+
+```mermaid
+flowchart LR
+    subgraph Without WAF
+        A1[Attacker] --> O1[Origin server]
+        O1 --> DB1[(Database)]
+    end
+
+    subgraph With Cloudflare WAF
+        A2[Attacker] --> CFWAF[Cloudflare WAF]
+        CFWAF -->|Blocked or challenged| Stop[Stopped at edge]
+        CFWAF -->|Allowed if clean| O2[Origin server]
+        O2 --> DB2[(Database)]
+    end
+```
+
+### Key Cloudflare WAF features
+
+- managed rulesets for common attack patterns
+- custom rules for your own logic
+- bot protection
+- rate limiting
+- challenge pages such as JS or CAPTCHA-style checks
+
+### Conceptual rule examples
+
+```text
+if request.query contains "SELECT * FROM"
+-> block
+```
+
+```text
+if country is unusual AND requests > 100/min
+-> challenge
+```
+
+### Important nuance
+
+A WAF is important, but it does not replace secure coding.
+
+You still need:
+
+- input validation
+- authentication and authorization
+- secure backend design
+- patching and dependency hygiene
+
+---
+
+## Zero Trust and SASE mental model
+
+These two are related, but they are not the same thing.
+
+### Zero Trust: the core idea
+
+Zero Trust is a security model built around one rule:
+
+> Never trust, always verify.
+
+### Traditional perimeter model
+
+```mermaid
+flowchart LR
+    User[User] --> VPN[VPN]
+    VPN --> Network[Trusted network]
+    Network --> Apps[Internal apps]
+```
+
+In this model, once someone is "inside", they are often trusted too broadly.
+
+### Zero Trust model
+
+```mermaid
+flowchart LR
+    User[User] --> Checks[Identity + device + context]
+    Checks --> App1[App A]
+    Checks --> App2[App B]
+```
+
+In this model:
+
+- every request is verified
+- there is no implicitly trusted network
+- access is per app, per user, per request
+
+### What Zero Trust checks
+
+```mermaid
+flowchart TB
+    Request[Access request] --> Identity[Identity]
+    Request --> Device[Device posture]
+    Request --> Location[Location / IP]
+    Request --> Context[Time / behavior / risk]
+    Identity --> Decision[Allow / deny / step-up]
+    Device --> Decision
+    Location --> Decision
+    Context --> Decision
+```
+
+### Cloudflare Zero Trust components
+
+```mermaid
+flowchart TB
+    ZT[Cloudflare Zero Trust] --> Access[Access]
+    ZT --> Gateway[Gateway]
+    ZT --> WARP[WARP]
+    ZT --> Tunnel[Tunnel]
+```
+
+### SASE: the broader architecture
+
+SASE stands for **Secure Access Service Edge**. It is a cloud-delivered architecture that combines networking and security into one service plane.
+
+```mermaid
+flowchart LR
+    User[Remote user] --> WARP[WARP client]
+    Branch[Branch office] --> Edge[SASE edge\nZero Trust + Gateway + security]
+    WARP --> Edge
+    Edge --> Internet[Internet]
+    Edge --> SaaS[SaaS apps]
+    Edge --> Internal[Private apps]
+```
+
+### Key difference
+
+| Concept | Meaning |
+| --- | --- |
+| **Zero Trust** | A security philosophy and access model |
+| **SASE** | A broader cloud architecture that implements Zero Trust plus networking and security services |
+
+Think of it like this:
+
+- Zero Trust = the rule
+- SASE = the system that enforces the rule at scale
+
+### Where WAF fits
+
+WAF protects public websites and APIs at the application layer.
+
+Zero Trust and SASE protect internal access, user traffic, and broader identity-aware connectivity patterns.
+
+They are complementary, not competing tools.
 
 ---
 
 ## Security fundamentals and best practices
 
-This is where many Cloudflare deployments either become excellent or remain half-finished.
+This is where Cloudflare deployments become either genuinely strong or only partially complete.
+
+### Separate public, admin, and internal surfaces
+
+```mermaid
+flowchart LR
+    PublicUsers[Public users] --> Edge[Cloudflare proxy]
+    Edge --> PublicApp[Public app]
+
+    Admins[Admins] --> Access[Cloudflare Access]
+    Access --> AdminApp[Admin / staging]
+
+    InternalSvc[Private services] --> Tunnel[cloudflared]
+    Tunnel --> Edge
+```
 
 ### 1. Prefer Full (strict) SSL/TLS
+
 Avoid insecure origin configurations.
 
 ### 2. Protect the origin, not just the edge
+
 If your origin stays openly reachable, attackers may bypass Cloudflare controls.
 
 Practical options:
 
-- allowlist Cloudflare IP ranges at the firewall or LB
+- allowlist Cloudflare IP ranges at the firewall or load balancer
 - use Tunnel instead of public ingress where possible
-- require Access for sensitive paths/apps
+- require Access for sensitive paths and apps
 
 ### 3. Turn on managed WAF rules early
+
 Start with managed protections before building lots of custom rules.
 
 ### 4. Add rate limiting to attack-prone endpoints
+
 Especially:
 
 - login
@@ -599,30 +856,45 @@ Especially:
 - search
 - contact forms
 - token and OTP endpoints
-- API endpoints vulnerable to abuse
+- API routes vulnerable to abuse
 
-### 5. Separate public, admin, and internal surfaces
-A common good pattern is:
+### 5. Review logs and analytics after enabling protections
 
-- public app proxied through Cloudflare
-- admin routes protected with Access
-- origin hidden or tightly filtered
+Security controls should be observed, not merely enabled.
 
-### 6. Review logs and analytics after enabling protections
-Security controls should be observed, not merely turned on.
+### 6. Do not over-block on day one
 
-### 7. Do not over-block on day one
-Use staged rollout and monitoring to avoid breaking legitimate traffic.
+Roll out in stages and watch for false positives.
+
+### 7. Use Access for admin paths and internal tools
+
+Protecting `/admin`, dashboards, and staging apps with identity checks is often one of the highest-value steps you can take.
 
 ---
 
 ## Performance and caching fundamentals
 
-Cloudflare can improve speed, but only when caching and delivery are configured intentionally.
+Cloudflare can improve speed, but only when caching is configured intentionally.
+
+### Cache hit vs cache miss
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant CF as Cloudflare cache
+    participant Origin
+
+    User->>CF: GET /app.js
+    alt Cache hit
+        CF-->>User: Return cached asset
+    else Cache miss
+        CF->>Origin: Fetch asset
+        Origin-->>CF: Asset + cache headers
+        CF-->>User: Return response
+    end
+```
 
 ### What Cloudflare caches well
-
-Usually easiest wins:
 
 - images
 - CSS
@@ -631,7 +903,7 @@ Usually easiest wins:
 - static downloads
 - versioned assets
 
-### What requires thought
+### What requires more thought
 
 - dynamic HTML
 - authenticated content
@@ -642,87 +914,123 @@ Usually easiest wins:
 
 - use cache-friendly asset versioning
 - enable compression where appropriate
-- use image optimization workflows if relevant to your plan/product choice
 - set sensible cache headers from the origin
 - create cache rules deliberately instead of guessing
+- measure results instead of assuming the edge fixed everything automatically
 
 ### Common mistake
 
-People expect “putting a site behind Cloudflare” to automatically optimize everything. In reality, the best results come from good origin headers, selective edge caching, and measurement.
+People often expect "putting a site behind Cloudflare" to optimize everything automatically. In reality, the best results come from good origin headers, selective edge caching, and measurement.
 
 ---
 
 ## Developer platform overview
 
-Cloudflare’s developer platform is broad. Here is the practical summary.
+Cloudflare's developer platform is broad. The practical question is usually not "What exists?" but "Which product matches my workload?"
+
+```mermaid
+flowchart TD
+    Need[What do you need?] --> Files[Files and media]
+    Files --> R2[R2]
+
+    Need --> ReadHeavy[Global read-heavy key/value]
+    ReadHeavy --> KV[KV]
+
+    Need --> Coord[Single logical coordinator]
+    Coord --> DO[Durable Objects]
+
+    Need --> SQL[Cloudflare-native SQL]
+    SQL --> D1[D1]
+
+    Need --> ExistingDB[Existing external database]
+    ExistingDB --> Hyperdrive[Hyperdrive]
+
+    Need --> Compute[Request-time code]
+    Compute --> Workers[Workers]
+
+    Need --> Frontend[Frontend deployment]
+    Frontend --> Pages[Pages]
+```
 
 ### Workers
-Use for execution at the edge, APIs, middleware, signed URLs, redirects, request transformation, and application backends.
+
+Use for:
+
+- APIs
+- middleware
+- redirects
+- request transformation
+- application backends
 
 ### Pages
-Use for frontend deployment and preview workflows.
+
+Use for:
+
+- frontend deployment
+- static hosting
+- preview workflows
 
 ### KV
+
 Use for globally distributed read-heavy key-value data.
 
 ### Durable Objects
-Use when you need strongly coordinated, stateful logic for rooms, sessions, counters, coordination, or real-time state.
+
+Use when you need strongly coordinated, stateful logic for rooms, counters, sessions, or real-time coordination.
 
 ### D1
+
 Use when you want SQL-style application data with Cloudflare-native ergonomics.
 
 ### Hyperdrive
-Use when you already have a database elsewhere and want better performance from Workers across geographies.
+
+Use when you already have a database elsewhere and want Workers to talk to it more efficiently.
 
 ### R2
+
 Use for object storage.
 
 ### Queues / Workflows
-Use for asynchronous jobs, pipelines, delayed tasks, or orchestrated flows.
 
-### Practical product selection shortcuts
-
-- “I need object storage” → R2
-- “I need a global config map or read-heavy key-value access” → KV
-- “I need coordination and stateful behavior” → Durable Objects
-- “I already have Postgres/MySQL elsewhere and want Workers to talk to it faster” → Hyperdrive
-- “I want SQL in the platform” → D1
+Use for asynchronous jobs, pipelines, and orchestrated flows.
 
 ---
 
 ## Pricing and plan selection guidance
 
-Cloudflare offers multiple plan tiers, with Free, Pro, Business, and Enterprise options across core website services, while developer and Zero Trust products may have their own pricing dimensions.
+Cloudflare offers multiple plan tiers across website services, while developer and Zero Trust products may have their own pricing dimensions.
 
-### Simple decision guide
+### Free plan
 
-#### Free plan
 Good for:
 
 - personal websites
 - hobby projects
-- very small production sites with modest needs
+- very small production sites
 - learning Cloudflare
 
-#### Pro plan
+### Pro plan
+
 Good for:
 
 - professional websites
 - startups
 - sites that need stronger security and more tuning than Free
 
-#### Business plan
+### Business plan
+
 Good for:
 
 - revenue-generating sites
-- teams that need stronger support, more features, and more operational control
+- teams that need stronger support and operational control
 
-#### Enterprise
+### Enterprise
+
 Good for:
 
 - large organizations
-- advanced contractual/support/compliance/performance requirements
-- very custom security or network architecture
+- advanced contractual or compliance requirements
+- complex security or network architecture
 
 ### Selection advice
 
@@ -730,14 +1038,11 @@ Choose based on:
 
 - traffic criticality
 - support expectations
-- WAF/rules complexity
+- WAF and rules complexity
 - compliance needs
 - operational risk tolerance
-- whether downtime or false positives are expensive for you
 
-### Practical recommendation
-
-Start smaller unless your business risk clearly justifies more. Many teams can validate architecture on a lower plan and upgrade when operational needs become concrete.
+Start smaller unless business risk clearly justifies more.
 
 ---
 
@@ -750,20 +1055,19 @@ Cloudflare is usually a strong fit when you want:
 - a simple way to accelerate and protect a public website
 - authoritative DNS plus reverse proxy in one platform
 - app-level Zero Trust for internal resources
-- edge/serverless deployment close to users
-- object storage tightly integrated with edge compute
+- edge or serverless deployment close to users
+- object storage integrated with app delivery
 - fewer publicly exposed origins
 
-### Less ideal or requires extra evaluation
+### Less ideal or needs extra evaluation
 
 Cloudflare may be a weaker fit when:
 
-- you need highly specialized legacy networking patterns not well matched to its model
-- your application architecture depends heavily on direct long-lived assumptions better served by a different platform design
-- you want a traditional server-first hosting model rather than an edge/serverless-centric one
-- your compliance, procurement, or regional data constraints require very specific architecture review
+- you need highly specialized legacy networking patterns
+- your application assumes a traditional server-first hosting model everywhere
+- your compliance or residency constraints need a very specific architecture review
 
-The right answer is often mixed architecture rather than all-or-nothing adoption.
+Mixed architecture is often the right answer.
 
 ---
 
@@ -774,17 +1078,17 @@ The right answer is often mixed architecture rather than all-or-nothing adoption
 Check:
 
 - nameservers are correctly updated at the registrar
-- required records were imported correctly
+- records were imported correctly
 - proxied vs DNS-only settings are intentional
-- DNS propagation and TTL expectations are realistic
+- propagation expectations are realistic
 
 ### SSL/TLS problems
 
 Check:
 
-- SSL/TLS mode matches origin cert reality
+- SSL/TLS mode matches origin certificate reality
 - origin certificate validity
-- redirect loops from mismatched origin/app settings
+- redirect loops from mismatched origin and Cloudflare settings
 - whether both the origin and Cloudflare are forcing redirects in conflicting ways
 
 ### Site works unproxied but fails when proxied
@@ -792,27 +1096,27 @@ Check:
 Check:
 
 - origin firewall rules
-- application reliance on client IP assumptions
+- client IP assumptions at the application layer
 - unsupported traffic type on a proxied hostname
-- header handling and host validation at origin
+- host header handling at the origin
 
 ### Tunnel problems
 
 Check:
 
 - `cloudflared` authentication and tunnel config
-- local service actually listening on the expected port
-- mapped hostname configuration
-- local firewall or SELinux/AppArmor restrictions if relevant
+- local service is actually listening
+- hostname mapping is correct
+- local firewall or OS security restrictions if relevant
 
 ### Access problems
 
 Check:
 
 - identity provider configuration
-- group/user mapping
+- user and group mapping
 - policy order and precedence
-- callback/redirect URI correctness
+- callback and redirect URI correctness
 
 ### Cache problems
 
@@ -827,27 +1131,38 @@ Check:
 
 ## Suggested learning path
 
-If you want to really learn Cloudflare without getting overwhelmed, follow this order.
+If you want to really learn Cloudflare without getting overwhelmed, use a staged path.
+
+```mermaid
+flowchart LR
+    L1[Level 1\nEdge model] --> L2[Level 2\nPublic website]
+    L2 --> L3[Level 3\nPrivate resources]
+    L3 --> L4[Level 4\nBuild on platform]
+    L4 --> L5[Level 5\nPlatform-native architecture]
+```
 
 ### Level 1: understand the edge model
+
 Learn:
 
 - DNS
 - proxied vs DNS-only records
 - SSL/TLS modes
-- CDN/cache basics
+- CDN and cache basics
 - WAF basics
 
 ### Level 2: operate a public website safely
+
 Do:
 
 - onboard a domain
 - enable Full (strict)
 - turn on managed WAF rules
 - add rate limiting
-- review analytics and events
+- review analytics and security events
 
 ### Level 3: secure private resources
+
 Do:
 
 - publish a service through Tunnel
@@ -855,6 +1170,7 @@ Do:
 - add identity provider integration
 
 ### Level 4: build on the platform
+
 Do:
 
 - deploy a site with Pages
@@ -862,10 +1178,11 @@ Do:
 - add R2 or another data service
 
 ### Level 5: adopt platform-native architecture
+
 Explore:
 
 - Durable Objects
-- D1 / KV / Hyperdrive choice tradeoffs
+- D1 / KV / Hyperdrive tradeoffs
 - Queues / Workflows
 - observability and scaling patterns
 
@@ -873,7 +1190,17 @@ Explore:
 
 ## Example adoption blueprints
 
+These blueprints show how the pieces usually fit together in the real world.
+
 ### Blueprint 1: small business website
+
+```mermaid
+flowchart LR
+    Visitors[Visitors] --> CF[DNS + Proxy + WAF]
+    CF --> Site[Website origin]
+    Admin[Admin] --> Access[Access for /admin]
+    Access --> Site
+```
 
 Use:
 
@@ -892,42 +1219,50 @@ Outcome:
 
 ### Blueprint 2: startup SaaS app
 
+```mermaid
+flowchart LR
+    User[User] --> Pages[Pages frontend]
+    User --> Worker[Workers API]
+    Worker --> D1[(D1)]
+    Worker --> R2[(R2 uploads)]
+    Team[Internal team] --> Access[Access]
+    Access --> Tunnel[Tunnel to internal tools]
+```
+
 Use:
 
 - DNS + proxy + WAF
 - Pages for frontend
-- Workers for APIs/middleware
+- Workers for APIs and middleware
 - R2 for uploads
 - Access for internal dashboards
 - Tunnel for private internal tooling
 
 Outcome:
 
-- modern app stack with public and internal surfaces separated cleanly
+- clean split between public app and internal tooling
+- modern app stack with fewer exposed services
 
 ### Blueprint 3: internal tool without VPN friction
+
+```mermaid
+flowchart LR
+    User[Employee] --> Access[Access]
+    IdP[Identity provider] --> Access
+    Tool[Internal tool] --> Tunnel[cloudflared]
+    Tunnel --> Access
+```
 
 Use:
 
 - Tunnel
 - Access
-- IdP integration
+- identity provider integration
 - optional WARP for device-aware policies
 
 Outcome:
 
-- internal web app accessible securely without broad network exposure
-
-### Blueprint 4: personal use
-
-Use:
-
-- 1.1.1.1
-- WARP app
-
-Outcome:
-
-- quick privacy/security improvement without managing domains or servers
+- secure internal web access without broad network exposure
 
 ---
 
@@ -936,51 +1271,65 @@ Outcome:
 1. Using Flexible SSL in production when better options exist.
 2. Turning on Cloudflare without restricting direct origin exposure.
 3. Expecting automatic caching of dynamic or personalized content.
-4. Creating too many custom rules before understanding default behavior.
+4. Creating too many custom rules before understanding the defaults.
 5. Treating WARP like a generic consumer streaming VPN.
 6. Publishing sensitive services with Tunnel but skipping Access.
 7. Choosing data products without matching them to access patterns.
-8. Migrating too many features at once instead of staged rollout.
+8. Migrating too many features at once instead of staging the rollout.
 
 ---
 
 ## Glossary
 
 ### Anycast
-A routing approach where users are directed to a nearby network location advertising the same IP range.
+
+A routing approach where users are directed to a nearby network location advertising the same IP ranges.
 
 ### Proxied record
-A DNS record whose web traffic is routed through Cloudflare’s reverse proxy.
+
+A DNS record whose web traffic is routed through Cloudflare's reverse proxy.
 
 ### Origin
+
 The upstream server or service that actually serves your application or content.
 
 ### Edge
-Cloudflare’s distributed network locations where traffic handling, caching, and code execution can occur.
+
+Cloudflare's distributed network locations where traffic handling, caching, and code execution can occur.
 
 ### WAF
+
 Web Application Firewall. Filters malicious or unwanted web requests.
 
 ### Tunnel
+
 A secure outbound connector from your infrastructure to Cloudflare.
 
 ### Access
+
 Identity-aware control over who can reach an application.
 
 ### Worker
+
 A Cloudflare serverless program that handles requests or background tasks.
 
 ### R2 bucket
+
 A container for storing objects in Cloudflare R2.
 
 ### Team domain
+
 Your Zero Trust organization subdomain, such as `example.cloudflareaccess.com`.
+
+### SASE
+
+Secure Access Service Edge. A cloud architecture that combines networking and security services into one edge-delivered platform.
 
 ---
 
-## Recommended “first 30 minutes” checklist
+## Recommended "first 30 minutes" checklist
 
-If you want a practical first session with Cloudflare, do this:
+If you want a practical first session with Cloudflare, do this.
 
 ### For a website owner
 
@@ -999,13 +1348,13 @@ If you want a practical first session with Cloudflare, do this:
 - deploy a simple Pages project
 - deploy a hello-world Worker
 - create an R2 bucket
-- read about storage bindings and environment secrets
+- read about bindings and environment secrets
 
 ### For an internal tool admin
 
-- create account / Zero Trust org
-- set up team domain
-- connect IdP
+- create account or Zero Trust org
+- set up a team domain
+- connect an identity provider
 - install `cloudflared`
 - publish one internal app via Tunnel
 - protect it with Access
@@ -1022,13 +1371,13 @@ If you want a practical first session with Cloudflare, do this:
 
 Ask yourself one question:
 
-### “What outcome do I want this week?”
+### "What outcome do I want this week?"
 
-- Faster and safer website → onboard your domain
-- Safer way to expose an internal app → Tunnel + Access
-- New app deployment workflow → Pages + Workers
-- File/object storage → R2
-- Personal privacy/security on device → WARP
+- faster and safer website -> onboard your domain
+- safer way to expose an internal app -> Tunnel + Access
+- new app deployment workflow -> Pages + Workers
+- file or object storage -> R2
+- personal privacy or security on a device -> WARP
 
 That is the best way to avoid getting lost in the size of the platform.
 
@@ -1036,46 +1385,11 @@ That is the best way to avoid getting lost in the size of the platform.
 
 ## Official references
 
-The guide above is based on Cloudflare’s official documentation and product pages.
+This guide is based on Cloudflare's official documentation and product pages. The most useful reference areas to read next are:
 
-- Cloudflare Docs home: https://developers.cloudflare.com/
-- Fundamentals / getting started: https://developers.cloudflare.com/fundamentals/get-started/
-- Cloudflare DNS: https://developers.cloudflare.com/dns/
-- DNS getting started: https://developers.cloudflare.com/dns/get-started/
-- Cloudflare WAF getting started: https://developers.cloudflare.com/waf/get-started/
-- Cloudflare Tunnel: https://developers.cloudflare.com/tunnel/
-- Tunnel setup: https://developers.cloudflare.com/tunnel/setup/
-- Cloudflare One / Zero Trust setup: https://developers.cloudflare.com/cloudflare-one/setup/
-- Zero Trust initial setup learning path: https://developers.cloudflare.com/learning-paths/secure-internet-traffic/initial-setup/
-- Workers overview: https://developers.cloudflare.com/workers/
-- Workers CLI getting started: https://developers.cloudflare.com/workers/get-started/guide/
-- Pages overview: https://developers.cloudflare.com/pages/
-- Pages getting started: https://developers.cloudflare.com/pages/get-started/
-- R2 overview: https://developers.cloudflare.com/r2/
-- R2 getting started: https://developers.cloudflare.com/r2/get-started/
-- R2 how it works: https://developers.cloudflare.com/r2/how-r2-works/
-- Storage options for Workers: https://developers.cloudflare.com/workers/platform/storage-options/
-- Hyperdrive overview: https://developers.cloudflare.com/hyperdrive/
-- Hyperdrive getting started: https://developers.cloudflare.com/hyperdrive/get-started/
-- WARP client overview: https://developers.cloudflare.com/warp-client/
-- WARP client getting started: https://developers.cloudflare.com/warp-client/get-started/
-- Cloudflare plans: https://www.cloudflare.com/plans/
-- Pro plan overview: https://www.cloudflare.com/plans/pro/
-- Business plan overview: https://www.cloudflare.com/plans/business/
-
----
-
-## Final advice
-
-Cloudflare is easiest to adopt when you treat it as a toolbox, not a monolith.
-
-Start with one concrete problem:
-
-- protect a website
-- expose a private app safely
-- deploy a frontend
-- build an API
-- store files
-- secure internal access
-
-Then add features in layers. That approach lets you get real value quickly without getting buried in the platform’s breadth.
+- DNS and domain onboarding
+- SSL/TLS and Origin CA
+- WAF, rate limiting, and security analytics
+- Tunnel and Access
+- Gateway and WARP
+- Pages, Workers, and R2
