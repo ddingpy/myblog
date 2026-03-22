@@ -64,6 +64,36 @@ The most important idea is this:
 | Alert on incidents | Notifications |
 | See who changed account settings | Audit Logs |
 
+A quick visual map:
+
+```mermaid
+flowchart LR
+    A[Cloudflare Observability] --> B[Workers signals]
+    A --> C[Edge and platform signals]
+    A --> D[Operations and governance]
+
+    B --> B1[Workers Logs]
+    B --> B2[Real-time logs / wrangler tail]
+    B --> B3[Workers traces]
+    B --> B4[OpenTelemetry export]
+    B --> B5[Tail Workers]
+    B --> B6[Workers Logpush]
+    B --> B7[Workers Analytics Engine]
+    B --> B8[Source maps]
+
+    C --> C1[Analytics dashboards]
+    C --> C2[Cloudflare Logs / Logpush]
+    C --> C3[GraphQL Analytics API]
+    C --> C4[Health Checks]
+    C --> C5[cloudflared metrics]
+    C --> C6[Zero Trust logs]
+    C --> C7[Web Analytics]
+
+    D --> D1[Notifications]
+    D --> D2[Audit Logs]
+    D --> D3[Logpush health monitoring]
+```
+
 ---
 
 ## 3. What is included in Cloudflare Observability
@@ -99,6 +129,50 @@ Source docs:
 - Use **OpenTelemetry export** when you already use Grafana Cloud, Honeycomb, Sentry, Axiom, or another OTel backend.
 - Use **Tail Workers** when you want to transform or route Worker telemetry yourself.
 - Use **Workers Analytics Engine** when you want **custom application metrics**, not raw logs.
+
+Decision flow:
+
+```mermaid
+flowchart LR
+    A[What are you trying to answer?] --> B{Need live debugging right now?}
+    B -->|Yes| C[Use wrangler tail]
+    B -->|No| D{Need stored logs or a past time window?}
+
+    D -->|Yes| E[Use Workers Logs]
+    D -->|Long-term export / SIEM / object storage| F[Use Workers Logpush or Cloudflare Logpush]
+    D -->|Trace request flow and latency| G[Use Workers traces]
+    D -->|Send telemetry to Grafana or Datadog| H[Use OTel export]
+    D -->|Custom app or tenant metrics| I[Use Workers Analytics Engine]
+    D -->|Traffic trends and request analytics| J[Use Analytics dashboards or GraphQL]
+    D -->|Origin uptime or latency| K[Use Health Checks]
+    D -->|Tunnel health| L[Use cloudflared Prometheus metrics]
+    D -->|Who changed config| M[Use Audit Logs]
+```
+
+Worker telemetry flow:
+
+```mermaid
+flowchart LR
+    U[User request] --> W[Cloudflare Worker]
+    W --> M1[Metrics and analytics]
+    W --> L1[Workers Logs]
+    W --> T1[Real-time tail]
+    W --> X1[Workers traces]
+    W --> S1[Source maps and stack traces]
+    W --> A1[Analytics Engine custom metrics]
+
+    W --> TW[Tail Worker]
+    TW --> TW1[Filter]
+    TW --> TW2[Redact]
+    TW --> TW3[Route to webhook or Slack]
+
+    W --> O1[OTel export]
+    O1 --> O2[Grafana / Datadog / Honeycomb / Sentry]
+
+    W --> LP1[Workers Logpush]
+    LP1 --> LP2[R2 / S3 / SIEM / log platform]
+    LP2 --> LP3[jq, SQL, dashboards, investigations]
+```
 
 ---
 
@@ -1235,6 +1309,38 @@ This gives you good practical coverage without building a huge telemetry platfor
 
 ## 5. Recommended deployment patterns
 
+Pattern summary:
+
+```mermaid
+flowchart LR
+    A[Service type] --> B[Small Worker API]
+    A --> C[Critical Worker service]
+    A --> D[Origin-backed API]
+    A --> E[Tunnel-exposed internal app]
+
+    B --> B1[Workers Logs]
+    B --> B2[wrangler tail]
+    B --> B3[Source maps]
+    B --> B4[Low-sample traces]
+
+    C --> C1[Workers Logs]
+    C --> C2[Traces]
+    C --> C3[OTel export]
+    C --> C4[Analytics Engine]
+    C --> C5[Notifications]
+
+    D --> D1[Health Checks]
+    D --> D2[Cloudflare Logpush]
+    D --> D3[Origin APM and logs]
+    D --> D4[Audit Logs]
+
+    E --> E1[cloudflared metrics]
+    E --> E2[Health Checks]
+    E --> E3[App logs]
+    E --> E4[Grafana dashboard]
+    E --> E5[Notifications]
+```
+
 ## Pattern A — Small Worker API
 Use:
 - Workers Logs
@@ -1290,6 +1396,31 @@ Best for:
 ---
 
 ## 6. A practical rollout plan
+
+Rollout sequence:
+
+```mermaid
+flowchart LR
+    A[Phase 1<br/>Visibility basics] --> B[Phase 2<br/>Better incident response]
+    B --> C[Phase 3<br/>Centralization]
+    C --> D[Phase 4<br/>Custom service analytics]
+
+    A --> A1[Enable Workers Logs]
+    A --> A2[Enable source maps]
+    A --> A3[Use native dashboards]
+
+    B --> B1[Use wrangler tail during incidents]
+    B --> B2[Enable traces]
+    B --> B3[Add Notifications]
+
+    C --> C1[Export via OTel]
+    C --> C2[Set up Workers Logpush or Cloudflare Logpush]
+    C --> C3[Monitor Logpush health]
+
+    D --> D1[Add Analytics Engine metrics]
+    D --> D2[Build tenant or billing dashboards]
+    D --> D3[Refine filters and sampling]
+```
 
 ## Phase 1 — Visibility basics
 - turn on Workers Logs or basic dashboards
