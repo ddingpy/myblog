@@ -260,6 +260,8 @@ Pipe through `jq`:
 npx wrangler tail | jq .event.request.url
 ```
 
+Here, `jq` is a command-line JSON processor. It reads the JSON output from `wrangler tail` and extracts only the `.event.request.url` field, which is the request URL from each tailed event.
+
 ### When to use it
 Use real-time logs when:
 
