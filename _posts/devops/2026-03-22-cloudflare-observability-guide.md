@@ -500,24 +500,103 @@ Source docs:
 
 Use **Workers Logpush** when:
 
-- you want raw Worker trace event logs delivered to storage/SIEM
+- you want raw Worker trace event logs delivered to storage or a security monitoring platform (SIEM)
 - your log pipeline is file/object-storage based
-- you want low-friction delivery into R2/S3/SIEM destinations
+- you want low-friction delivery into R2/S3 or SIEM destinations
 
 Use **OTel export** when:
 
 - you want first-class observability in an OTel-native platform
 - you care more about traces and live dashboards than object-delivered log batches
 
-### Example cURL pattern
-Cloudflare documents creating Logpush jobs via API. In practice, the flow is:
+### How to use Workers Logpush in practice
+In practice, the flow is:
 
-1. choose account or zone scope
-2. choose destination
-3. verify destination ownership
-4. choose dataset
-5. create the job
-6. monitor job health
+1. enable `logpush = true` on the Worker
+2. create an **account-scoped** Logpush job
+3. choose `workers_trace_events` as the dataset
+4. send logs to R2, S3, or another supported destination
+5. limit fields or add `filter` / `sample_rate` so you only export what you need
+6. read the delivered files from storage or ingest them into your log platform
+
+### Example 1: enable it on a Worker
+
+```toml
+name = "orders-api"
+main = "src/index.js"
+compatibility_date = "2026-03-22"
+logpush = true
+```
+
+Cloudflare documents that Workers with `logpush = true` are automatically picked up by the Logpush job.
+
+### Example 2: send Workers trace events to R2
+
+```bash
+curl "https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/logpush/jobs" \
+  --header 'X-Auth-Key: <API_KEY>' \
+  --header 'X-Auth-Email: <EMAIL>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "name": "workers-logpush-r2",
+    "output_options": {
+      "field_names": [
+        "Event",
+        "EventTimestampMs",
+        "Outcome",
+        "Exceptions",
+        "Logs",
+        "ScriptName"
+      ],
+      "timestamp_format": "rfc3339"
+    },
+    "destination_conf": "r2://<BUCKET_PATH>/{DATE}?account-id=<ACCOUNT_ID>&access-key-id=<R2_ACCESS_KEY_ID>&secret-access-key=<R2_SECRET_ACCESS_KEY>",
+    "dataset": "workers_trace_events",
+    "enabled": true
+  }' | jq .
+```
+
+Use `{DATE}` in the destination path if you want daily folders. That makes it much easier to retrieve logs for a specific day or deployment window.
+
+### Example 3: export only exception events
+
+```bash
+curl "https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/logpush/jobs" \
+  --header 'X-Auth-Key: <API_KEY>' \
+  --header 'X-Auth-Email: <EMAIL>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "name": "workers-logpush-exceptions-only",
+    "output_options": {
+      "field_names": [
+        "EventTimestampMs",
+        "Outcome",
+        "Exceptions",
+        "ScriptName"
+      ],
+      "timestamp_format": "rfc3339"
+    },
+    "filter": "{\"where\":{\"key\":\"Outcome\",\"operator\":\"eq\",\"value\":\"exception\"}}",
+    "destination_conf": "r2://<BUCKET_PATH>/exceptions/{DATE}?account-id=<ACCOUNT_ID>&access-key-id=<R2_ACCESS_KEY_ID>&secret-access-key=<R2_SECRET_ACCESS_KEY>",
+    "dataset": "workers_trace_events",
+    "enabled": true
+  }' | jq .
+```
+
+This pattern is useful when you only care about failed requests, uncaught exceptions, or post-deploy regression checks.
+
+### Example 4: inspect one day of delivered logs
+Once the files are in storage, you can query them by date folder and then filter with `jq`:
+
+```bash
+gzip -dc ./2026-03-22/*.gz | jq 'select(.Outcome == "exception") | {ts: .EventTimestampMs, script: .ScriptName, exceptions: .Exceptions}'
+```
+
+This is the Logpush pattern for questions like:
+
+- “Show me only exception logs from 2026-03-22”
+- “Show me only the logs from the deploy window”
+- “Keep all raw logs in storage, but inspect only one subset locally”
 
 ### Important operational note
 Cloudflare’s Logpush Health Dashboards docs explicitly warn that Logpush **cannot backfill** dropped data. If logs are dropped because a job is disabled or failing, that data is gone.  
