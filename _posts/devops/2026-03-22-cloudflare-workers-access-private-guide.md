@@ -11,7 +11,7 @@ A practical guide for Cloudflare **Workers** created with **C3 (`create-cloudfla
 ## TL;DR
 
 - **C3 does not make a Worker private.** It only scaffolds the project.
-- A deployed Worker becomes reachable through a **`workers.dev` URL**, **Preview URL**, **Route**, or **Custom Domain**.
+- A deployed Worker becomes reachable through a **`workers.dev` URL**, **Preview URL** (a per-version `workers.dev` test URL), **Route**, or **Custom Domain**.
 - To make it "private", put **Cloudflare Access** in front of the Worker and only allow **your email**.
 - For scripts, CI, cron jobs, or Postman-like automation, use **Cloudflare Access service tokens**.
 - **`cloudflared` Tunnel does _not_ make a Worker private by itself.** Tunnel is mainly for:
@@ -47,9 +47,40 @@ These are separate problems. Most people asking to make a Worker private mean **
 You normally expose a Worker through one or more of these:
 
 - **`workers.dev`** — easiest, fast for testing
-- **Preview URLs** — generated per version and easy to forget about
+- **Preview URLs** — extra `workers.dev` URLs for specific versions, useful for testing and easy to forget about
 - **Custom Domain** — best production-style URL
 - **Route** — attach Worker to an existing zone/path
+
+### What a Preview URL actually is
+
+A **Preview URL** is an extra `workers.dev` hostname that points to a specific version of your Worker so you can test or review that version directly.
+
+Cloudflare currently documents two types:
+
+- **Versioned Preview URL** — generated automatically for each new Worker version
+- **Aliased Preview URL** — a readable alias you assign manually, such as `staging-my-api.<subdomain>.workers.dev`
+
+Typical shapes look like:
+
+```text
+https://<version-prefix>-my-api.<subdomain>.workers.dev
+https://staging-my-api.<subdomain>.workers.dev
+```
+
+Why this matters:
+
+- Preview URLs are a **separate entrypoint** from your main `workers.dev` URL, route, or custom domain
+- if Preview URLs are enabled, they are **public immediately** unless you protect them with **Cloudflare Access**
+- they are useful for PR review, QA, and testing a version before promoting it broadly
+- they are also easy to miss, which is why they are a common accidental exposure path for "private" Workers
+
+Current Cloudflare behavior:
+
+- `preview_urls = workers_dev` is the default if you do not set it explicitly
+- Preview URLs are enabled by default when `workers_dev` is enabled
+- older Wrangler versions may still behave differently, so for a private API you should set `preview_urls = false` explicitly
+
+For a personal API, the safest default is: **do not leave Preview URLs enabled unless you actively use them**.
 
 ### Recommended choices
 
@@ -652,4 +683,3 @@ I recommend this exact stack:
 - [Cloudflare Tunnel overview](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/)
 - [Workers VPC + Tunnel](https://developers.cloudflare.com/workers-vpc/configuration/tunnel/)
 - [One-time PIN login](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/one-time-pin/)
-
