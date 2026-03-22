@@ -128,13 +128,21 @@ Wrangler is the best default when you work with:
 
 ### 4.3 Installation
 
-Cloudflare docs commonly show Wrangler being installed with a Node package manager:
+For a brand-new Cloudflare app, the better default is to start with C3:
 
 ```bash
-npm i -D wrangler
+npm create cloudflare@latest
 ```
 
-You can also use `yarn` or `pnpm`.
+Cloudflare’s current getting-started docs note that C3 bootstraps the project and installs Wrangler for you.
+
+If you are adding Wrangler to an existing project or configuring things manually, install it as a local dev dependency instead of relying on a global install:
+
+```bash
+npm i -D wrangler@latest
+```
+
+You can also use `yarn` or `pnpm`. In the examples below, `wrangler` is used as shorthand; in a local-project setup, run it with your package manager’s exec flow if it is not already on your `PATH`.
 
 ### 4.4 Authentication
 
@@ -312,7 +320,7 @@ npm create cloudflare@latest
 
 Think of C3 as a **front door** into Cloudflare development:
 
-- **C3** creates the project
+- **C3** creates the project and installs Wrangler
 - **Wrangler** becomes the day-to-day tool afterward
 
 ### 6.5 When not to use it
