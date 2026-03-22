@@ -161,6 +161,7 @@ Use Workers Logs when:
 
 - you want a simple built-in log viewer in Cloudflare
 - you need persisted logs for debugging and short-term analysis
+- you need to look back at a specific time window after a deploy or incident
 - your team does not yet need a full external logging platform
 - you want structured logs from your Worker with query/filter support
 
@@ -261,6 +262,37 @@ npx wrangler tail | jq .event.request.url
 ```
 
 Here, `jq` is a command-line JSON processor. It reads the JSON output from `wrangler tail` and extracts only the `.event.request.url` field, which is the request URL from each tailed event.
+
+### How to get only the logs you need
+The right approach depends on whether you need **live logs** or **older logs from a time window**.
+
+- If you need logs **right now**, use `wrangler tail` and narrow the stream with `jq` or `grep`.
+- If you need logs from **earlier today, yesterday, or a specific deploy window**, use **Workers Logs** or your exported log destination. `wrangler tail` only shows new events after you start it.
+
+Examples for live filtering:
+
+```bash
+# Show only request URLs from the live stream
+npx wrangler tail | jq -r '.event.request.url'
+```
+
+```bash
+# Show only request URLs that contain a path fragment
+npx wrangler tail | jq -r '.event.request.url' | grep '/api/orders'
+```
+
+```bash
+# Show only lines that contain a known marker from your app logs
+npx wrangler tail | grep 'request_failed'
+```
+
+If logs are already stored in a file or external platform, you can filter by time range there. For example, with newline-delimited JSON logs:
+
+```bash
+jq 'select(.timestamp >= "2026-03-22T00:00:00Z" and .timestamp < "2026-03-23T00:00:00Z")' worker-logs.ndjson
+```
+
+The exact timestamp field name depends on the dataset or destination, but the general idea is the same: use `wrangler tail` for **live filtering**, and use stored logs for **time-range filtering**.
 
 ### When to use it
 Use real-time logs when:
