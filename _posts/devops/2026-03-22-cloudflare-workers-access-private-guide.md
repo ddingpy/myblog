@@ -14,6 +14,7 @@ A practical guide for Cloudflare **Workers** created with **C3 (`create-cloudfla
 - A deployed Worker becomes reachable through a **`workers.dev` URL**, **Preview URL** (a per-version `workers.dev` test URL), **Route**, or **Custom Domain**.
 - To make it "private", put **Cloudflare Access** in front of the Worker and only allow **your email**.
 - For scripts, CI, cron jobs, or Postman-like automation, use **Cloudflare Access service tokens**.
+- If the caller is another **Cloudflare Worker** or **Pages Function** on your account, use **Service Bindings** instead of passing API keys or tokens in code.
 - **`cloudflared` Tunnel does _not_ make a Worker private by itself.** Tunnel is mainly for:
   1. letting **clients** authenticate to an Access-protected app from a CLI, or
   2. letting a **Worker reach your private origin/network** through **Workers VPC + Tunnel**.
@@ -30,7 +31,8 @@ So there are two different security goals:
 Use:
 - **Cloudflare Access** in front of the Worker URL
 - an **Allow** policy for **your email**
-- optionally **service tokens** for machine-to-machine access
+- optionally **service tokens** for machine-to-machine access from callers outside Cloudflare
+- **Service Bindings** if the caller is another Worker or Pages Function on your Cloudflare account
 
 ### B. "My Worker should be able to call my private backend"
 Use:
@@ -39,6 +41,24 @@ Use:
 - a Worker binding that calls your internal API/database/app through the tunnel
 
 These are separate problems. Most people asking to make a Worker private mean **A**.
+Service Bindings are a special case of **A** for Cloudflare-to-Cloudflare calls.
+
+A quick visual summary:
+
+```mermaid
+flowchart TB
+    Goal[What do you want to make private?] --> Callers[Who can call my Worker]
+    Goal --> Upstream[What my Worker can call]
+
+    Callers --> Access[Cloudflare Access]
+    Access --> Human[Human access\nEmail / SSO / OTP]
+    Access --> Machine[External automation\nService token]
+    Callers --> Binding[Internal caller\nService Binding]
+
+    Upstream --> VPC[Workers VPC / VPC Service]
+    VPC --> Tunnel[Cloudflare Tunnel]
+    Tunnel --> Origin[Private origin / internal API]
+```
 
 ---
 
@@ -50,6 +70,16 @@ You normally expose a Worker through one or more of these:
 - **Preview URLs** — extra `workers.dev` URLs for specific versions, useful for testing and easy to forget about
 - **Custom Domain** — best production-style URL
 - **Route** — attach Worker to an existing zone/path
+
+These are separate entrypoints to the same deployed Worker:
+
+```mermaid
+flowchart LR
+    WD[workers.dev] --> W[Your Worker]
+    PU[Preview URL] --> W
+    CD[Custom Domain] --> W
+    RT[Route] --> W
+```
 
 ### What a Preview URL actually is
 
@@ -291,6 +321,16 @@ curl -H "cf-access-token: $TOKEN" https://my-api.<subdomain>.workers.dev
 
 This works because `cloudflared` is acting as a **client for Access**, not because the Worker is behind a tunnel.
 
+The request path looks like this:
+
+```mermaid
+flowchart LR
+    Client[Browser or cloudflared client] --> Access[Cloudflare Access]
+    Access --> Host[Protected Worker hostname]
+    Host --> Worker[Worker code]
+    Worker --> JWT[Validate Cf-Access-Jwt-Assertion]
+```
+
 ---
 
 ## 4) Option 2 — Workers + Access service token
@@ -390,6 +430,129 @@ curl \
   https://my-api.example.com/private
 ```
 
+The machine-to-machine flow looks like this:
+
+```mermaid
+sequenceDiagram
+    participant S as Script / CI / backend
+    participant A as Cloudflare Access
+    participant W as Private Worker
+
+    S->>A: Request with Client ID + Client Secret
+    A-->>S: CF_Authorization token / allow
+    S->>W: Request through protected hostname
+    W-->>S: Protected response
+```
+
+---
+
+## 4.5 Alternative for Worker-to-Worker calls: Service Bindings
+
+Use **Service Bindings** when:
+
+- the caller is another **Worker** or **Pages Function**
+- both sides are on **your Cloudflare account**
+- you want to avoid managing API keys or tokens in application code
+- you may want the target Worker to be reachable **only** through an internal binding
+
+Do **not** use Service Bindings when the caller is:
+
+- `curl` on your laptop
+- GitHub Actions
+- Postman
+- a VM/container/backend outside Cloudflare
+
+For those callers, keep using **Cloudflare Access service tokens**.
+
+### Why Service Bindings are different
+
+Cloudflare documents Service Bindings as an internal Worker-to-Worker communication mechanism.
+The caller declares a binding in `wrangler`, and that binding gives it permission to call the target Worker.
+
+This means:
+
+- no `CF-Access-Client-Id` / `CF-Access-Client-Secret` in your Worker code
+- no custom API key exchange between the two Workers
+- the target Worker can be isolated from the public internet and only reached through the binding
+
+Cloudflare currently supports two call styles:
+
+- **RPC** — call methods exposed by the target Worker
+- **HTTP** — call the target Worker's `fetch()` handler via `env.MY_SERVICE.fetch(...)`
+
+For most new designs, Cloudflare recommends **RPC**.
+If your target Worker already has a normal HTTP `fetch()` handler, HTTP-style Service Bindings are often the easiest migration path.
+
+Visually:
+
+```mermaid
+flowchart LR
+    Caller[Worker A or Pages Function] -->|Service Binding| Target[Worker B]
+    Target --> API[RPC methods or fetch()]
+    Secrets[No shared secret in code] -.-> Target
+    External[External clients] --> Access2[Cloudflare Access]
+    Access2 -.-> Target
+```
+
+### Example: bind Worker A to Worker B
+
+Caller Worker (`worker-a`) `wrangler.jsonc`:
+
+```jsonc
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "worker-a",
+  "main": "src/index.ts",
+  "services": [
+    {
+      "binding": "AUTH_SERVICE",
+      "service": "worker-b"
+    }
+  ]
+}
+```
+
+Target Worker (`worker-b`) `wrangler.jsonc`:
+
+```jsonc
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "worker-b",
+  "main": "src/index.ts"
+}
+```
+
+HTTP-style call from Worker A:
+
+```ts
+export interface Env {
+  AUTH_SERVICE: Fetcher;
+}
+
+export default {
+  async fetch(_request: Request, env: Env): Promise<Response> {
+    const authResponse = await env.AUTH_SERVICE.fetch(
+      "https://auth-service.internal/check"
+    );
+
+    if (!authResponse.ok) {
+      return new Response("Forbidden", { status: 403 });
+    }
+
+    return new Response("OK");
+  },
+};
+```
+
+### Important limitation
+
+Service Bindings are **not** a replacement for Cloudflare Access on a public Worker hostname.
+
+If humans, scripts, CI, or tools outside Cloudflare need to call the Worker over `workers.dev`, a Route, or a Custom Domain, you should still protect that hostname with **Cloudflare Access** and use:
+
+- email / SSO for humans
+- service tokens for external automation
+
 ---
 
 ## 5) Can I access a "private Worker" using `cloudflared tunnel`?
@@ -429,8 +592,13 @@ This is the case where your Worker should call something private like:
 
 In that design:
 
-```text
-You ---> Cloudflare Access ---> Worker ---> Workers VPC ---> Tunnel ---> private origin
+```mermaid
+flowchart LR
+    User[You or approved client] --> Access[Cloudflare Access]
+    Access --> Worker[Public Worker hostname]
+    Worker --> VPC[Workers VPC Service]
+    VPC --> Tunnel[Cloudflare Tunnel]
+    Tunnel --> Origin[Private origin / internal API]
 ```
 
 The Worker is still exposed through a Cloudflare URL, but callers are gated by Access.
@@ -535,6 +703,11 @@ Use this checklist for a Worker that only you should access.
 - [ ] Store token in a secret manager
 - [ ] Rotate the token before expiry
 
+### For Worker-to-Worker calls
+- [ ] Use a **Service Binding** if both Workers are on your Cloudflare account
+- [ ] Keep the target Worker off the public internet when possible
+- [ ] Prefer **RPC** for new designs, use HTTP-style binding if you already have a `fetch()` API
+
 ### For private backends
 - [ ] Put the backend behind **Cloudflare Tunnel**
 - [ ] Expose it to the Worker via **Workers VPC**
@@ -599,6 +772,37 @@ Use this when:
 
 ---
 
+## 8.3 Internal Worker-to-Worker call with Service Bindings
+
+Caller Worker `wrangler.jsonc`:
+
+```jsonc
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gateway-worker",
+  "main": "src/index.ts",
+  "workers_dev": false,
+  "services": [
+    {
+      "binding": "PRIVATE_SERVICE",
+      "service": "private-service"
+    }
+  ]
+}
+```
+
+Use this when:
+- the caller is another Worker or Pages Function
+- you want no API keys or tokens in Worker code for that hop
+- the target service should stay internal to Cloudflare
+
+Remember:
+- the target Worker must be on your **Cloudflare account**
+- Service Bindings do **not** help non-Cloudflare clients call your Worker
+- if you also expose a public hostname, protect that hostname with **Cloudflare Access**
+
+---
+
 ## 9) Troubleshooting
 
 ## I still can access the Worker publicly
@@ -637,6 +841,12 @@ Use:
 
 You do **not** need `cloudflared tunnel` for that.
 
+## I want no keys or tokens between two Workers
+If both sides are Cloudflare Workers or Pages Functions on your account, use a **Service Binding**.
+
+That is the cleanest way to avoid manually managing secrets between services.
+If one side is outside Cloudflare, you still need **Access** with a **service token** or another authentication mechanism.
+
 ---
 
 ## 10) My recommended setup for you
@@ -646,6 +856,27 @@ If your goal is:
 > “I want my C3 API project accessible only by me.”
 
 I recommend this exact stack:
+
+At a glance:
+
+```mermaid
+flowchart TB
+    Start[Who needs to call the Worker?] --> Human[Just you in browser or CLI]
+    Start --> External[External script / CI / backend]
+    Start --> Internal[Another Worker / Pages Function]
+
+    Human --> AccessEmail[Access\nAllow your email]
+    External --> ServiceToken[Access\nService Auth + service token]
+    Internal --> Binding[Service Binding]
+
+    AccessEmail --> Upstream{Need private upstreams too?}
+    ServiceToken --> Upstream
+    Binding --> Upstream
+
+    Upstream -->|Yes| Tunnel[VPC + Tunnel]
+    Upstream -->|No| Done[Done]
+    Tunnel --> Done
+```
 
 ### Simplest
 1. Deploy Worker
@@ -667,6 +898,12 @@ I recommend this exact stack:
 6. Validate the Access JWT in the Worker
 7. If the Worker needs private upstreams, connect them with **Workers VPC + Tunnel**
 
+### If another Worker is the caller
+1. Put the shared/internal API in its own Worker
+2. Call it through a **Service Binding**
+3. Keep the target Worker off the public internet if possible
+4. Only use **Access** on hostnames that humans or external programs must reach
+
 ---
 
 ## 11) Reference docs
@@ -678,6 +915,9 @@ I recommend this exact stack:
 - [Validate JWTs from Access](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)
 - [Service tokens](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/)
 - [Connect through Access using a CLI](https://developers.cloudflare.com/cloudflare-one/tutorials/cli/)
+- [Bindings overview](https://developers.cloudflare.com/workers/runtime-apis/bindings/)
+- [Service Bindings](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/)
+- [Service Bindings RPC](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/rpc/)
 - [Workers VPC overview](https://developers.cloudflare.com/workers-vpc/)
 - [Workers VPC: access a private API](https://developers.cloudflare.com/workers-vpc/examples/private-api/)
 - [Cloudflare Tunnel overview](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/)
