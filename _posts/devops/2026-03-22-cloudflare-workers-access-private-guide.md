@@ -483,6 +483,32 @@ Cloudflare currently supports two call styles:
 For most new designs, Cloudflare recommends **RPC**.
 If your target Worker already has a normal HTTP `fetch()` handler, HTTP-style Service Bindings are often the easiest migration path.
 
+### What RPC means here
+
+**RPC** means **Remote Procedure Call**.
+
+In this context, it means Worker A can call a method exposed by Worker B almost like calling a normal async function:
+
+```ts
+const result = await env.AUTH_SERVICE.checkSession("abc123");
+```
+
+That is different from HTTP-style bindings, where you call the other Worker's `fetch()` handler with a `Request`:
+
+```ts
+const response = await env.AUTH_SERVICE.fetch(
+  "https://auth-service.internal/check"
+);
+```
+
+So the mental model is:
+
+- **RPC** = "call this method on the other Worker"
+- **HTTP** = "send this request to the other Worker's `fetch()` handler"
+
+RPC is still remote and asynchronous, so you should `await` it.
+For RPC-style Service Bindings, the target Worker typically exposes methods by extending `WorkerEntrypoint`.
+
 Visually:
 
 ```mermaid
