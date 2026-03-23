@@ -488,7 +488,7 @@ Visually:
 ```mermaid
 flowchart LR
     Caller[Worker A or Pages Function] -->|Service Binding| Target[Worker B]
-    Target --> API[RPC methods or fetch()]
+    Target --> API["RPC methods or fetch()"]
     Secrets[No shared secret in code] -.-> Target
     External[External clients] --> Access2[Cloudflare Access]
     Access2 -.-> Target
