@@ -37,6 +37,19 @@ Think of it as the top-level network boundary that contains:
 
 In other words, the VPC is the network container, and the subnets are smaller network segments inside it.
 
+### What is a subnet?
+
+A **subnet** is a smaller IP network range inside a VPC.
+
+You use subnets to divide the VPC into separate network segments so you can place resources in different areas with different routing behavior.
+
+In AWS, the common distinction is:
+
+- a **public subnet** can route internet-bound traffic to an **Internet Gateway**
+- a **private subnet** does not send internet-bound traffic directly to an Internet Gateway and usually uses a **NAT device** for outbound internet access
+
+In this guide, the NAT instance lives in a public subnet, and the application servers live in private subnets.
+
 ### What is NAT?
 
 **NAT (Network Address Translation)** is a networking technique that rewrites IP addresses in packets as traffic passes through a device.
