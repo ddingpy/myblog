@@ -226,6 +226,75 @@ Where the target is the **instance ID of the NAT instance**.
 
 > If you have multiple private subnets, you can associate them with the same private route table, or create separate route tables that all point to the same NAT instance.
 
+### How to check which route table an EC2 instance is using
+
+In AWS, a route table is associated with a **subnet**, not directly with an EC2 instance.
+
+That means the correct way to inspect routing for an instance is:
+
+1. find the instance's **subnet ID**
+2. find the **route table associated with that subnet**
+3. inspect the `0.0.0.0/0` route target
+
+#### Check in the AWS Console
+
+1. Open the **EC2 console**.
+2. Select the instance you want to inspect.
+3. In the instance details, open the **Networking** tab and note the **Subnet ID** and **VPC ID**.
+4. Click the **Subnet ID** link to open that subnet in the **VPC console**.
+5. In the subnet details, open the associated **Route table**.
+6. Review the **Routes** section.
+
+Interpret the route table like this:
+
+- `0.0.0.0/0 -> igw-xxxxxxxx` means the subnet is routed as a **public subnet**
+- `0.0.0.0/0 -> i-xxxxxxxxxxxxxxxxx`, `nat-xxxxxxxx`, or `eni-xxxxxxxx` means the subnet is routed as a **private subnet using NAT**
+- no `0.0.0.0/0` route usually means the subnet has **no general internet egress**
+
+> A subnet is considered public or private based on its routing, not just its name. An instance in a public subnet still needs a **public IPv4** or **Elastic IP** if you want direct internet connectivity.
+
+#### Check with the AWS CLI
+
+First, get the instance's subnet and VPC:
+
+```bash
+aws ec2 describe-instances \
+  --instance-ids i-0123456789abcdef0 \
+  --query 'Reservations[0].Instances[0].{InstanceId:InstanceId,SubnetId:SubnetId,VpcId:VpcId,PrivateIp:PrivateIpAddress,PublicIp:PublicIpAddress}' \
+  --output table
+```
+
+Then check whether that subnet has an explicitly associated route table:
+
+```bash
+aws ec2 describe-route-tables \
+  --filters Name=association.subnet-id,Values=subnet-0123456789abcdef0 \
+  --query 'RouteTables[].{RouteTableId:RouteTableId,Routes:Routes[*].{Destination:DestinationCidrBlock,GatewayId:GatewayId,InstanceId:InstanceId,NatGatewayId:NatGatewayId,NetworkInterfaceId:NetworkInterfaceId}}' \
+  --output json
+```
+
+If this returns no route table, the subnet is usually using the VPC's **main route table**. In that case, list the route tables in the VPC and find the one with `"Main": true`:
+
+```bash
+aws ec2 describe-route-tables \
+  --filters Name=vpc-id,Values=vpc-0123456789abcdef0 \
+  --query 'RouteTables[].{RouteTableId:RouteTableId,Associations:Associations[*].{SubnetId:SubnetId,Main:Main},Routes:Routes[*].{Destination:DestinationCidrBlock,GatewayId:GatewayId,InstanceId:InstanceId,NatGatewayId:NatGatewayId,NetworkInterfaceId:NetworkInterfaceId}}' \
+  --output json
+```
+
+#### Fast rule for public vs private
+
+Use this quick check when reading route tables:
+
+- **Public subnet**: default route `0.0.0.0/0` points to an **Internet Gateway**
+- **Private subnet with NAT**: default route `0.0.0.0/0` points to a **NAT instance**, **NAT Gateway**, or similar next hop
+- **Isolated subnet**: no default route to the internet
+
+For the architecture in this guide:
+
+- the **NAT instance subnet** should be **public**
+- the **application server subnets** should be **private**
+
 ---
 
 ## 7. Security group design
