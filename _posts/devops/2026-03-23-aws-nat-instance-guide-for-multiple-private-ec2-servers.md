@@ -6,7 +6,7 @@ tags: [aws, vpc, ec2, nat-instance, networking, devops, cloudflare-tunnel]
 
 # AWS NAT Instance Guide for Multiple Private EC2 Servers
 
-This guide shows how to set up **one EC2 instance as a NAT instance** so that **several other EC2 instances without public IPv4 addresses** can still reach the external internet for package installs, OS updates, Docker image pulls, API calls, and Cloudflare Tunnel outbound connections.
+This guide shows how to set up **one EC2 instance as a NAT (Network Address Translation) instance** so that **several other EC2 instances without public IPv4 addresses** can still reach the external internet for package installs, OS updates, Docker image pulls, API calls, and Cloudflare Tunnel outbound connections.
 
 It is written for the common pattern:
 
@@ -16,6 +16,48 @@ It is written for the common pattern:
 - **IPv4 egress only** through the NAT instance
 
 > Important: AWS still recommends **NAT Gateway** for better availability, bandwidth, and lower admin effort. A NAT instance is appropriate when you want lower fixed cost and you accept the operational work and single-instance risk.
+
+---
+
+## Quick definitions: NAT and VPC
+
+Before going deeper, it helps to define the two main terms used throughout this guide.
+
+### What is a VPC?
+
+A **VPC (Virtual Private Cloud)** is your private network inside AWS.
+
+Think of it as the top-level network boundary that contains:
+
+- your **subnets**
+- your **route tables**
+- your **Internet Gateway**
+- your **EC2 instances**
+- your **NAT devices**
+
+In other words, the VPC is the network container, and the subnets are smaller network segments inside it.
+
+### What is NAT?
+
+**NAT (Network Address Translation)** is a networking technique that rewrites IP addresses in packets as traffic passes through a device.
+
+In this guide, the NAT instance does this for your private EC2 servers:
+
+- private servers send outbound traffic to the NAT instance
+- the NAT instance replaces the private source IP with its own public IP
+- the internet sends the response back to the NAT instance
+- the NAT instance forwards the response to the original private server
+
+This lets private servers reach the internet for outbound connections without giving each server its own public IPv4 address.
+
+### How they relate in AWS
+
+In this design:
+
+- the **VPC** is the overall AWS network
+- the **public subnet** contains the NAT instance
+- the **private subnets** contain your app servers
+- the **NAT instance** provides outbound internet access for those private servers
 
 ---
 
@@ -114,7 +156,7 @@ Prefer NAT Gateway when:
 
 Before you start, make sure you have:
 
-- a VPC
+- a VPC (Virtual Private Cloud), which is the AWS network that contains your subnets, route tables, and EC2 instances
 - at least **one public subnet**
 - at least **one private subnet**
 - an **Internet Gateway** attached to the VPC
