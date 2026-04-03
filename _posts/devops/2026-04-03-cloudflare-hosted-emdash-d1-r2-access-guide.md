@@ -1,3 +1,9 @@
+---
+title: "Cloudflare-hosted EmDash with D1 + R2 + Access"
+date: 2026-04-03 12:00:00 +0900
+tags: [cloudflare, emdash, workers, d1, r2, access, devops]
+---
+
 # Cloudflare-hosted EmDash with D1 + R2 + Access
 ### Comprehensive deployment and operations guide
 
