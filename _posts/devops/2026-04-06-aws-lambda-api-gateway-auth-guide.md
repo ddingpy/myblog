@@ -37,13 +37,16 @@ flowchart LR
 sequenceDiagram
     autonumber
     participant U as User / Client
+    participant C as Amazon Cognito
     participant G as API Gateway
-    participant A as Lambda Authorizer
+    participant J as JWT Authorizer
     participant L as Business Lambda
 
-    U->>G: GET /profile\nAuthorization: Bearer demo-secret-token
-    G->>A: Validate token/header
-    A-->>G: isAuthorized = true
+    U->>C: Sign in
+    C-->>U: JWT access token
+    U->>G: GET /profile\nAuthorization: Bearer access-token
+    G->>J: Validate issuer/audience/scope
+    J-->>G: Authorized
     G->>L: Invoke protected route
     L-->>G: 200 JSON response
     G-->>U: 200 OK
@@ -185,7 +188,130 @@ For most simple Lambda-backed APIs, including the examples in this guide, **HTTP
 
 ---
 
-## 4) Practical example #1: a simple public API
+## 4) What is Amazon Cognito?
+
+**Amazon Cognito** is AWS's identity platform for applications.
+
+In practical terms, it helps you:
+
+- register users
+- sign users in
+- issue tokens after sign-in
+- federate users from Google, Apple, Facebook, OIDC, or SAML providers
+- optionally issue temporary AWS credentials
+
+For this guide, the important idea is simple:
+
+- **Cognito authenticates the user**
+- **API Gateway validates Cognito's token**
+- **Lambda receives trusted claims after API Gateway accepts the request**
+
+### The two main parts of Cognito
+
+Amazon Cognito has two major components:
+
+| Component | What it does | Typical use | Used in this guide? |
+| --- | --- | --- | --- |
+| **User pool** | User directory, sign-in service, OAuth 2.0 / OIDC token issuer | Sign users in to your app or API | **Yes** |
+| **Identity pool** | Exchanges trusted identities for temporary AWS credentials | Let browser/mobile clients call AWS services like S3 or DynamoDB directly | **No** |
+
+### User pool
+
+A **user pool** is the part most developers mean when they say "Cognito auth."
+
+It can:
+
+- store local users
+- let users sign in with username, email, password, passkeys, or MFA
+- federate external identity providers into one login system
+- issue **ID tokens**, **access tokens**, and **refresh tokens**
+- host the sign-in flow for you with **managed login**
+
+In this article, the **user pool** is the service that issues the JWT access token that API Gateway validates.
+
+### Identity pool
+
+An **identity pool** is different.
+
+It does **not** exist mainly to sign users in to your app. Instead, it gives the client **temporary AWS credentials** after the user has already authenticated with a trusted identity provider.
+
+Use an identity pool when your frontend needs to talk directly to AWS services such as:
+
+- Amazon S3
+- Amazon DynamoDB
+- other AWS APIs protected by IAM
+
+If your frontend only calls **your own API Gateway endpoint**, you usually do **not** need an identity pool.
+
+### Why this guide uses a user pool, not an identity pool
+
+This guide protects Lambda routes behind API Gateway.
+
+For that pattern, a **user pool + JWT authorizer** is usually enough:
+
+1. the user signs in with Cognito
+2. Cognito returns tokens
+3. the client sends the **access token** to API Gateway
+4. API Gateway validates the token
+5. Lambda runs only if the request is authorized
+
+You only add an **identity pool** if the client must also get AWS credentials for direct access to AWS services.
+
+### What is managed login?
+
+**Managed login** is Cognito's hosted sign-in experience.
+
+When you attach a domain to a user pool, Cognito can provide pages for:
+
+- sign in
+- sign up
+- MFA
+- password reset
+- account recovery
+
+This is useful when you do not want to build the authentication UI yourself.
+
+### Token types in Cognito
+
+After a successful sign-in, Cognito can return three important token types:
+
+| Token | Main job | Typical use in your system | Send it to API Gateway? |
+| --- | --- | --- | --- |
+| **Access token** | Authorize API calls | Protect routes and scopes such as `notes-api/read` | **Yes** |
+| **ID token** | Describe who signed in | Build the app session or show user profile information | Usually **no** |
+| **Refresh token** | Get new tokens without signing in again | Keep the user signed in longer | **No** |
+
+### Access token vs ID token
+
+This distinction matters a lot.
+
+- the **access token** is mainly for **authorization**
+- the **ID token** is mainly for **identity information**
+
+In this guide, API Gateway checks the **access token** because the protected routes use OAuth scopes.
+
+### Cognito features you might use later
+
+As your system grows, Cognito can also help with:
+
+- multi-factor authentication
+- passkeys
+- social login
+- SAML or OIDC federation
+- Lambda triggers for custom auth flows or token customization
+- token revocation and logout flows
+
+### The shortest mental model
+
+If you want a one-line summary:
+
+- **Cognito proves who the user is and issues tokens**
+- **API Gateway decides whether the token can access the route**
+- **Lambda handles the business logic after auth succeeds**
+
+---
+
+## 5) Practical example #1: a simple public API
 
 Goal: create a public endpoint:
 
@@ -266,7 +392,7 @@ flowchart TD
 
 ---
 
-## 5) Practical example #2: a real authenticated API
+## 6) Practical example #2: a real authenticated API
 
 Now let’s build a **production-style authenticated API**.
 
@@ -618,7 +744,7 @@ API Gateway should reject the request before the Lambda integration runs.
 
 ---
 
-## 6) How the authentication flow works
+## 7) How the authentication flow works
 
 ### Successful request
 
@@ -665,7 +791,7 @@ sequenceDiagram
 
 ---
 
-## 7) Selected AWS CLI examples
+## 8) Selected AWS CLI examples
 
 These are not the full deployment, but they show the core resources behind the console steps above.
 
@@ -712,9 +838,26 @@ aws apigatewayv2 update-route \
   --authorization-scopes notes-api/write
 ```
 
+### Enable IAM authorization on a route
+
+```bash
+aws apigatewayv2 update-route \
+  --api-id <api-id> \
+  --route-id <route-id> \
+  --authorization-type AWS_IAM
+```
+
+### Disable the default `execute-api` endpoint
+
+```bash
+aws apigatewayv2 update-api \
+  --api-id <api-id> \
+  --disable-execute-api-endpoint
+```
+
 ---
 
-## 8) Production advice
+## 9) Production advice
 
 For a real authenticated Lambda API, the default recommendation is:
 
@@ -750,7 +893,180 @@ Use this when the client is another AWS principal and can sign requests with **S
 
 ---
 
-## 9) Common mistakes
+## 10) What if users do not log in?
+
+This is a different problem from user authentication.
+
+If users do not log in, you need to ask:
+
+- is the caller a **public browser app**
+- a **mobile app**
+- **my own backend server**
+- or a **private internal system**
+
+### Short answer
+
+If a request comes directly from a **public web page** or a **public mobile app**, you usually cannot make the API accept requests from **only your app** with strong guarantees.
+
+That is because, without user identity or a trusted server identity, the client itself is not truly secret.
+
+### Why browser-only protection is weak
+
+For a browser-only web app, controls such as these are **not strong authentication**:
+
+- CORS
+- `Referer` or `Origin` checks
+- `User-Agent` checks
+- API keys embedded in frontend JavaScript
+- custom headers added by frontend JavaScript
+
+Inference from the web security model:
+
+- browsers enforce CORS, but `curl` and other clients do not
+- anything shipped to frontend JavaScript is visible to the user
+- client-controlled headers can be replayed or spoofed
+
+So if your browser app calls API Gateway directly and users do not log in, treat that route as a **public or guest API**, not as a truly app-only API.
+
+### Pattern A: public browser app with no login
+
+If the browser talks directly to API Gateway, the realistic goal is **abuse reduction**, not perfect caller identity.
+
+Use measures like:
+
+- request validation
+- throttling
+- short payload limits
+- custom domain name
+- disabling the default `execute-api` endpoint
+
+If you need stronger bot filtering, put another protective layer in front of the API, such as an edge tier or challenge flow, but treat that as friction reduction rather than perfect authentication.
+
+### Pattern B: your web app has a backend or BFF
+
+If you want the API to be callable only by **your web app**, this is usually the best pattern.
+
+Architecture:
+
+```mermaid
+flowchart LR
+    B[Browser] --> S[Your backend / BFF]
+    S --> G[API Gateway]
+    G --> L[Lambda]
+```
+
+In this design:
+
+- the browser never talks to API Gateway directly
+- secrets stay on your server
+- your server can use strong credentials when calling the API
+
+Good choices for the backend-to-API hop:
+
+- **AWS_IAM** if the backend runs on AWS and can sign requests with SigV4
+- **Cognito client credentials** if you want OAuth 2.0 access tokens and scopes for machine-to-machine calls
+
+### Pattern C: server-to-server without user login
+
+If the caller is another backend service, daemon, or scheduled job, use **machine identity** instead of end-user identity.
+
+Two common patterns:
+
+#### Option 1: IAM authorization
+
+Use this when the caller already runs with AWS credentials, such as:
+
+- Lambda
+- ECS
+- EC2
+- another AWS service
+
+API Gateway checks whether the caller has `execute-api` permission for the route.
+
+#### Option 2: Cognito client credentials grant
+
+Use this when the caller is a non-human system and you want OAuth 2.0 scopes.
+
+Important details:
+
+- create a **separate app client**
+- enable the **client credentials grant**
+- configure a **client secret**
+- request a token from Cognito's `/oauth2/token` endpoint
+- protect the API route with a JWT authorizer and scopes
+
+This works well for trusted servers. It is **not** a good primary control for browser JavaScript because the client secret must stay secret.
+
+Example token request:
+
+```bash
+curl --request POST \
+  --url 'https://my-notes-demo.auth.us-east-1.amazoncognito.com/oauth2/token' \
+  --header 'content-type: application/x-www-form-urlencoded' \
+  --user '<m2m-client-id>:<m2m-client-secret>' \
+  --data 'grant_type=client_credentials' \
+  --data 'scope=notes-api/read notes-api/write'
+```
+
+In Cognito, a client credentials grant returns an **access token** for a machine client, not an ID token for a signed-in human user.
+
+### Pattern D: mobile app without user login
+
+A native mobile app can be made **harder to abuse** than a browser app, but it is still not a perfect identity boundary by itself.
+
+A pragmatic design is:
+
+- mobile app talks to your backend first
+- backend checks some form of device or app attestation
+- backend returns a short-lived token
+- mobile app calls the API with that short-lived token
+
+Inference:
+
+- app binaries can still be extracted
+- embedded long-lived secrets can still leak
+- attestation raises the bar, but it is not the same as user authentication
+
+So for mobile guest access, prefer **short-lived tokens and server verification**, not a permanent secret bundled into the app.
+
+### Pattern E: internal or network-private access only
+
+If the API should only be callable from inside your AWS network, use a **private REST API**.
+
+This is the strongest no-user-login pattern when the callers are inside a VPC or connected network, because the API is not exposed to the public internet.
+
+Important note:
+
+- **private APIs are a REST API feature**
+- they are not available as private HTTP API endpoints
+
+### Recommended decision guide
+
+Use this table:
+
+| Your real requirement | Recommended pattern |
+| --- | --- |
+| Public website, no login, browser calls API directly | Treat it as a public API and add abuse controls |
+| Only your website should call the API | Put your own backend or BFF in front of the API |
+| Trusted backend service calls the API | Use `AWS_IAM` or Cognito client credentials |
+| Only private network callers should reach the API | Use a private REST API |
+| Guest mobile app with no login | Use backend-issued short-lived tokens, not a bundled secret |
+
+### What not to rely on as your only protection
+
+Do not rely on these alone:
+
+- CORS
+- a hidden frontend API key
+- a custom header in JavaScript
+- `Referer` checks
+- `User-Agent` checks
+
+These can still be useful as small friction layers, but they are not strong proof that the caller is really your app.
+
+---
+
+## 11) Common mistakes
 
 ### Mistake 1: Treating Lambda as the public HTTP endpoint
 
@@ -776,9 +1092,13 @@ If you use CLI, SDK, or IaC for HTTP API Lambda integrations or Lambda authorize
 
 Let API Gateway reject invalid tokens and missing scopes before the business handler runs.
 
+### Mistake 7: Trying to secure a browser app with CORS or a frontend API key
+
+Those controls do not prove caller identity. For a browser-only no-login app, assume the API is public and design for abuse resistance, or move the privileged call behind your own backend.
+
 ---
 
-## 10) A good starter design
+## 12) A good starter design
 
 If you want a practical starting point, use this stack:
 
@@ -797,7 +1117,7 @@ That gives you:
 
 ---
 
-## 11) Summary
+## 13) Summary
 
 ### If your question is: “How do I use AWS Lambda as an API?”
 
@@ -816,6 +1136,10 @@ Create:
 
 They are **two API Gateway product types**. For this guide, choose **HTTP API** because it is simpler and lower-cost. Choose **REST API** only when you need advanced features such as API keys, usage plans, request validation, WAF, or private endpoints.
 
+### If your question is: “What is Amazon Cognito?”
+
+For this guide, think of Cognito mainly as **the AWS sign-in and token service**. The key part is the **user pool**, which authenticates users and issues tokens. You only need an **identity pool** if the client also needs temporary AWS credentials for direct access to AWS services.
+
 ### If your question is: “How do I make an authenticated Lambda API?”
 
 Use this pattern:
@@ -826,9 +1150,18 @@ Use this pattern:
 - API Gateway HTTP API with a JWT authorizer
 - Lambda routes protected by scope-based authorization
 
+### If your question is: “How do I make the API usable only by my web or app if users do not log in?”
+
+Usually:
+
+- for a browser-only app, you cannot enforce that strongly
+- for a real app-only boundary, put your own backend in front of the API
+- for server-to-server callers, use `AWS_IAM` or Cognito client credentials
+- for private network-only access, use a private REST API
+
 ---
 
-## 12) References
+## 14) References
 
 Official AWS documentation used for this guide:
 
@@ -841,8 +1174,15 @@ Official AWS documentation used for this guide:
 - HTTP API access control: https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-access-control.html
 - HTTP API IAM authorization: https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-access-control-iam.html
 - HTTP API JWT authorizers: https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-jwt-authorizer.html
+- Disable the default endpoint for HTTP APIs: https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-disable-default-endpoint.html
 - Troubleshooting HTTP API Lambda integrations: https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-troubleshooting-lambda.html
+- Private REST APIs in API Gateway: https://docs.aws.amazon.com/apigateway/latest/developerguide/apigateway-private-apis.html
 - HTTP API Lambda authorizers: https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-lambda-authorizer.html
+- What is Amazon Cognito?: https://docs.aws.amazon.com/cognito/latest/developerguide/what-is-amazon-cognito.html
+- Amazon Cognito user pools: https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools.html
+- How authentication works with Amazon Cognito: https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-how-to-authenticate.html
+- Managed login endpoints: https://docs.aws.amazon.com/cognito/latest/developerguide/managed-login-endpoints.html
+- OAuth 2.0 grants in Cognito: https://docs.aws.amazon.com/cognito/latest/developerguide/federation-endpoints-oauth-grants.html
 - Scopes, M2M, and resource servers in Cognito: https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools-define-resource-servers.html
 - Cognito authorization endpoint: https://docs.aws.amazon.com/cognito/latest/developerguide/authorization-endpoint.html
 - Cognito token endpoint: https://docs.aws.amazon.com/cognito/latest/developerguide/token-endpoint.html
