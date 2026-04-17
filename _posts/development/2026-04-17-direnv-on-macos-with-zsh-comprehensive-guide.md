@@ -87,11 +87,11 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    A[/Users/you/code/app/api] --> B[/Users/you/code/app]
-    B --> C[/Users/you/code]
-    C --> D[/Users/you]
+    A["/Users/you/code/app/api"] --> B["/Users/you/code/app"]
+    B --> C["/Users/you/code"]
+    C --> D["/Users/you"]
 
-    B -. contains .envrc .-> E[direnv uses repo-root config]
+    B -. "contains .envrc" .-> E[direnv uses repo-root config]
 ```
 
 ---
