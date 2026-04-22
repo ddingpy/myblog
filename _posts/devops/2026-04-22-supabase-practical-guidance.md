@@ -69,7 +69,7 @@ Supabase is a strong choice when you want most of the following:
 
 - A **real relational database**, not document storage
 - Fast product iteration with **minimal DevOps overhead**
-- Built-in auth, storage, and realtime without stitching together many services
+- Built-in auth for sign-up, sign-in, session handling, and JWT issuance, plus storage and realtime, without stitching together many services
 - Strong authorization with **Row Level Security (RLS)**
 - A path to more advanced Postgres features such as **extensions**, **functions**, and **pgvector**
 - A team that is comfortable owning schema and SQL
@@ -360,6 +360,150 @@ This is the section where many Supabase projects either become elegant or become
 - Supabase Auth issues JWTs
 - JWT claims are used inside Postgres authorization flows
 - RLS policies decide which rows a caller may see or modify
+
+### What “built-in auth” actually means
+
+When people say Supabase has **built-in auth**, they do **not** mean “security is automatic” or “authorization is solved.”
+
+They mean Supabase already includes a **managed authentication system** as part of the platform, so you do not need to separately build or bolt on the common identity pieces yourself.
+
+In practice, that usually means Supabase gives you these pieces out of the box:
+
+- user registration and sign-in endpoints
+- common login methods such as email/password, magic links, one-time codes, and OAuth providers
+- secure password hashing and credential storage
+- session creation, refresh token handling, and sign-out flows
+- JWT issuance so clients can call Supabase APIs as an authenticated user
+- a managed `auth.users` table for identity records
+- admin APIs for trusted server-side user management
+
+That is the “built-in” part: the identity system is already there and wired into the rest of the platform.
+
+### What built-in auth does not mean
+
+Built-in auth does **not** mean:
+
+- every signed-in user should be allowed to read every row
+- your application roles are already modeled correctly
+- sensitive actions are automatically safe
+- client code can be trusted to enforce permissions
+
+Authentication answers:
+
+> **Who is this user?**
+
+Authorization answers:
+
+> **What is this user allowed to do?**
+
+Supabase Auth helps with the first question. **RLS** is how you enforce the second.
+
+### Example 1: normal email/password sign-up
+
+Suppose you are building a notes app.
+
+Without a built-in auth system, you would need to create or integrate:
+
+- a users table and identity model
+- password hashing and reset flows
+- email verification
+- session cookies or tokens
+- token refresh behavior
+- sign-out and account recovery flows
+
+With Supabase Auth, the basic sign-up flow can be as simple as:
+
+```ts
+const { data, error } = await supabase.auth.signUp({
+  email: "ana@example.com",
+  password: "correct-horse-battery-staple"
+});
+```
+
+What Supabase handles for you here:
+
+- storing the identity in `auth.users`
+- hashing the password securely
+- issuing a session when appropriate
+- supporting email confirmation flows
+- making the authenticated user available as `auth.uid()` inside Postgres policies
+
+Your app still needs to decide what that user can access after login.
+
+### Example 2: passwordless email login
+
+Suppose you want a lower-friction sign-in flow for a mobile app or lightweight SaaS.
+
+```ts
+const { error } = await supabase.auth.signInWithOtp({
+  email: "ana@example.com"
+});
+```
+
+Supabase can handle the email-based login flow and session creation for you. That means you avoid building password storage and reset UX entirely.
+
+This is still built-in auth, because Supabase is operating the identity workflow rather than your team building it from scratch.
+
+### Example 3: Google login
+
+Suppose users want to sign in with an existing Google account.
+
+```ts
+const { data, error } = await supabase.auth.signInWithOAuth({
+  provider: "google"
+});
+```
+
+Supabase handles the OAuth dance, receives the identity result, and creates the authenticated session your client will use afterward.
+
+Again, built-in auth does **not** mean Google users can see every project in your database. It only means the platform has identified the user and issued the session.
+
+### Example 4: built-in auth plus RLS
+
+Here is the key relationship:
+
+- Auth says the current user is `user_123`
+- RLS checks whether `user_123` owns the row or belongs to the project
+
+That is why a policy like this matters:
+
+```sql
+create policy "users can read own notes"
+on public.notes
+for select
+using (auth.uid() = user_id);
+```
+
+In plain English:
+
+- Supabase Auth signs the user in
+- Supabase puts the user identity into the JWT
+- Postgres sees that identity through `auth.uid()`
+- RLS allows only rows where `user_id` matches the signed-in user
+
+So if Ana signs in successfully, she is authenticated. But she still cannot read Ben’s notes, because the database policy blocks it.
+
+That is the practical meaning of “built-in auth” in Supabase:
+
+- identity and session management are provided for you
+- authorization still needs to be designed deliberately
+
+### Example 5: server-side admin actions
+
+Sometimes you need trusted backend-only behavior, such as inviting a user before they ever sign in.
+
+That is where built-in auth also helps on the server side:
+
+```ts
+const { data, error } = await supabase.auth.admin.createUser({
+  email: "new-user@example.com",
+  email_confirm: true
+});
+```
+
+This is useful for admin tooling, internal systems, migrations, or invite flows, but it should run only in a trusted server context with a server-only key.
+
+This is another good example of what built-in auth means: Supabase is not just storing tokens. It exposes an actual managed identity service with both end-user and admin workflows.
 
 ### The single most important rule
 
@@ -846,4 +990,3 @@ These are the primary official sources used to shape this guide. Re-check them f
 - pgvector overview: https://supabase.com/docs/guides/database/extensions/pgvector
 - vector indexes: https://supabase.com/docs/guides/ai/vector-indexes
 - iOS SwiftUI quickstart: https://supabase.com/docs/guides/getting-started/quickstarts/ios-swiftui
-
