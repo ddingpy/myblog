@@ -1,6 +1,6 @@
 ---
 title: "Supabase + AWS Lambda + Vercel: A Practical Full-Stack Sample Project"
-date: 2026-04-22 19:20:00 +0900
+date: 2026-04-22 11:20:00 +0900
 tags: [supabase, aws, lambda, vercel, auth, jwt, rls, react, devops]
 ---
 
