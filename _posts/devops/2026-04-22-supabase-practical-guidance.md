@@ -25,16 +25,17 @@ It is written to be useful for real product work rather than as a feature brochu
 7. [Local Development and Migrations](#local-development-and-migrations)
 8. [Database Design Advice](#database-design-advice)
 9. [Auth, JWTs, and Row Level Security](#auth-jwts-and-row-level-security)
-10. [Storage Patterns](#storage-patterns)
-11. [Realtime Guidance](#realtime-guidance)
-12. [Edge Functions vs Database Functions vs Client Logic](#edge-functions-vs-database-functions-vs-client-logic)
-13. [Performance, Scaling, and Observability](#performance-scaling-and-observability)
-14. [Backups, Recovery, and Branching](#backups-recovery-and-branching)
-15. [Practical iOS / Swift Guidance](#practical-ios--swift-guidance)
-16. [Common Pitfalls](#common-pitfalls)
-17. [A Launch Checklist](#a-launch-checklist)
-18. [Suggested Starter Architecture](#suggested-starter-architecture)
-19. [Official References](#official-references)
+10. [Using Supabase Auth with AWS Lambda](#using-supabase-auth-with-aws-lambda)
+11. [Storage Patterns](#storage-patterns)
+12. [Realtime Guidance](#realtime-guidance)
+13. [Edge Functions vs Database Functions vs Client Logic](#edge-functions-vs-database-functions-vs-client-logic)
+14. [Performance, Scaling, and Observability](#performance-scaling-and-observability)
+15. [Backups, Recovery, and Branching](#backups-recovery-and-branching)
+16. [Practical iOS / Swift Guidance](#practical-ios--swift-guidance)
+17. [Common Pitfalls](#common-pitfalls)
+18. [A Launch Checklist](#a-launch-checklist)
+19. [Suggested Starter Architecture](#suggested-starter-architecture)
+20. [Official References](#official-references)
 
 ---
 
@@ -502,6 +503,7 @@ const { data, error } = await supabase.auth.admin.createUser({
 ```
 
 This is useful for admin tooling, internal systems, migrations, or invite flows, but it should run only in a trusted server context with a server-only key.
+For `supabase.auth.admin.*`, that means a `service_role` key.
 
 This is another good example of what built-in auth means: Supabase is not just storing tokens. It exposes an actual managed identity service with both end-user and admin workflows.
 
@@ -590,6 +592,230 @@ using (
 - An update policy checks old rows but not new values
 - Using a server key in client code
 - Confusing “logged in” with “authorized”
+
+---
+
+## Using Supabase Auth with AWS Lambda
+
+Supabase Auth works fine with AWS Lambda.
+
+The important design choice is this:
+
+- for normal user-triggered requests, pass the **user's access token** to Lambda and keep **RLS active**
+- for trusted admin jobs, cron tasks, queue consumers, or back-office flows, use a **server-only elevated key** intentionally
+
+### Recommended architecture for normal app traffic
+
+```mermaid
+flowchart LR
+    A[Web or Mobile App] -->|Sign in| B[Supabase Auth]
+    B -->|Access token JWT| A
+    A -->|Authorization Bearer JWT| C[API Gateway]
+    C --> D[AWS Lambda]
+    D -->|Verify token signature| E[Supabase JWKS]
+    D -->|Publishable key plus user JWT| F[Supabase Data API]
+    F --> G[(Postgres + RLS)]
+```
+
+The practical rule is simple:
+
+> **If the request is acting on behalf of a signed-in user, Lambda should usually operate with that user's JWT, not with a service role key.**
+
+That keeps your existing RLS policies in force.
+
+### End-to-end example: client to Lambda to Supabase
+
+In a browser or mobile client, send the Supabase access token to your AWS API:
+
+```ts
+const {
+  data: { session },
+} = await supabase.auth.getSession();
+
+if (!session) {
+  throw new Error("Not signed in");
+}
+
+const response = await fetch(`${API_BASE_URL}/notes`, {
+  headers: {
+    Authorization: `Bearer ${session.access_token}`,
+  },
+});
+```
+
+Then in Lambda, verify the JWT and create a Supabase client that uses the same user token.
+
+```ts
+import type { APIGatewayProxyHandlerV2 } from "aws-lambda";
+import { createClient } from "@supabase/supabase-js";
+import { createRemoteJWKSet, jwtVerify } from "jose";
+
+const SUPABASE_URL = process.env.SUPABASE_URL!;
+const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY!;
+const SUPABASE_ISSUER = `${SUPABASE_URL}/auth/v1`;
+
+const PROJECT_JWKS = createRemoteJWKSet(
+  new URL(`${SUPABASE_ISSUER}/.well-known/jwks.json`)
+);
+
+function getBearerToken(headerValue?: string) {
+  if (!headerValue?.startsWith("Bearer ")) {
+    return null;
+  }
+
+  return headerValue.slice("Bearer ".length);
+}
+
+export const handler: APIGatewayProxyHandlerV2 = async (event) => {
+  const authHeader = event.headers.authorization ?? event.headers.Authorization;
+  const accessToken = getBearerToken(authHeader);
+
+  if (!accessToken) {
+    return {
+      statusCode: 401,
+      body: JSON.stringify({ error: "Missing bearer token" }),
+    };
+  }
+
+  try {
+    const { payload } = await jwtVerify(accessToken, PROJECT_JWKS, {
+      issuer: SUPABASE_ISSUER,
+    });
+
+    if (typeof payload.sub !== "string") {
+      return {
+        statusCode: 401,
+        body: JSON.stringify({ error: "Invalid subject claim" }),
+      };
+    }
+
+    const supabase = createClient(
+      SUPABASE_URL,
+      SUPABASE_PUBLISHABLE_KEY,
+      {
+        accessToken: async () => accessToken,
+      }
+    );
+
+    const { data, error } = await supabase
+      .from("notes")
+      .select("id, body, created_at")
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    if (error) {
+      throw error;
+    }
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        userId: payload.sub,
+        notes: data,
+      }),
+    };
+  } catch {
+    return {
+      statusCode: 401,
+      body: JSON.stringify({ error: "Invalid or expired token" }),
+    };
+  }
+};
+```
+
+Why this pattern is good:
+
+- Lambda verifies that the JWT is genuine
+- Lambda does **not** need to invent its own authorization rules for ordinary reads and writes
+- Supabase sees the same user identity the client had
+- RLS policies continue to apply in Postgres
+
+### Why the `accessToken` option matters
+
+When Lambda calls Supabase as the user, prefer giving the client the user's JWT via the `accessToken` option.
+
+That means your Lambda is effectively saying:
+
+> "Run this query as the signed-in user."
+
+This is usually the cleanest way to preserve your existing RLS model.
+
+### Practical Lambda notes
+
+- Keep `SUPABASE_PUBLISHABLE_KEY` in Lambda for user-context requests
+- Keep the user's JWT in the incoming `Authorization` header
+- Verify the token before trusting claims like `sub`
+- If your project still uses a legacy shared-secret JWT setup, prefer verification through the Auth server rather than hand-rolling shared-secret validation
+
+### Privileged admin or scheduled job flow
+
+Some Lambda functions are not acting on behalf of a single end user.
+
+Examples:
+
+- nightly reconciliation jobs
+- queue consumers
+- back-office admin actions
+- invite workflows
+- account cleanup or reporting tasks
+
+That is a different path:
+
+```mermaid
+flowchart LR
+    A[Scheduler Queue or Admin API] --> B[AWS Lambda]
+    B -->|Secret key or service_role key| C[Supabase Admin or Data API]
+    C --> D[(Postgres)]
+    B -. bypasses RLS .-> D
+```
+
+The important warning is:
+
+> **Secret keys and `service_role` bypass RLS.**
+
+That is correct for trusted backend jobs, but it is the wrong default for ordinary user traffic.
+
+### Example: admin Lambda for invite flows
+
+For `supabase.auth.admin.*`, Supabase requires a `service_role` key. Keep it only in Lambda environment variables and never expose it to clients.
+
+```ts
+import type { ScheduledHandler } from "aws-lambda";
+import { createClient } from "@supabase/supabase-js";
+
+const supabaseAdmin = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  }
+);
+
+export const handler: ScheduledHandler = async () => {
+  const { data, error } = await supabaseAdmin.auth.admin.createUser({
+    email: "new-user@example.com",
+    email_confirm: true,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  console.log("Created user", data.user?.id);
+};
+```
+
+Use this path only when Lambda itself is the trusted authority.
+
+### Good default rules
+
+1. If the request starts with a signed-in user, forward the user's JWT to Lambda and keep RLS active.
+2. If the function is an internal system job, use an elevated key deliberately and keep the scope narrow.
+3. Do not use a `service_role` key for routine user reads and writes unless Lambda is also enforcing authorization itself.
 
 ---
 
@@ -975,6 +1201,8 @@ These are the primary official sources used to shape this guide. Re-check them f
 - Row Level Security: https://supabase.com/docs/guides/database/postgres/row-level-security
 - Auth overview: https://supabase.com/docs/guides/auth
 - JWTs: https://supabase.com/docs/guides/auth/jwts
+- API keys: https://supabase.com/docs/guides/api/api-keys
+- JavaScript Auth Admin: https://supabase.com/docs/reference/javascript/admin-api
 - Storage access control: https://supabase.com/docs/guides/storage/security/access-control
 - Edge Functions: https://supabase.com/docs/guides/functions
 - Realtime pricing: https://supabase.com/docs/guides/realtime/pricing
