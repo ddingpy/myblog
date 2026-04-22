@@ -251,6 +251,14 @@ It gives you:
 - a safer place for experiments
 - a reliable migration workflow
 
+### What you need installed
+
+At minimum:
+
+- a Docker-compatible container runtime
+- the Supabase CLI
+- Node.js 20+ if you plan to run the CLI via `npx`
+
 ### Quick local workflow
 
 ```bash
@@ -263,6 +271,169 @@ npx supabase init
 # start the local Supabase stack
 npx supabase start
 ```
+
+### What you should see after `supabase start`
+
+The CLI will print the local endpoints and keys you need for development.
+
+It will look roughly like this:
+
+```text
+API URL: http://localhost:54321
+DB URL: postgresql://postgres:postgres@localhost:54322/postgres
+Studio URL: http://localhost:54323
+Mailpit URL: http://localhost:54324
+anon key: <local-anon-key>
+service_role key: <local-service-role-key>
+```
+
+In practice, these local endpoints are the important ones:
+
+- `http://localhost:54321` for the API
+- `http://localhost:54323` for Supabase Studio
+- `http://localhost:54324` for local auth emails via Mailpit
+
+### Minimal local repo layout
+
+After `supabase init`, your repo will have a `supabase/` directory.
+
+A practical setup quickly becomes:
+
+```text
+your-app/
+  supabase/
+    config.toml
+    migrations/
+    seed.sql
+```
+
+You should treat these as source-controlled project files, not throwaway local state.
+
+### Concrete example 1: prove the local database works
+
+If you are new to Supabase local dev, start with a tiny table and seed data before adding auth or storage.
+
+Create a migration:
+
+```bash
+npx supabase migration new create_todos_table
+```
+
+Then edit the generated file in `supabase/migrations/<timestamp>_create_todos_table.sql`:
+
+```sql
+create table public.todos (
+  id bigint generated always as identity primary key,
+  title text not null,
+  is_done boolean not null default false,
+  created_at timestamptz not null default now()
+);
+```
+
+Create `supabase/seed.sql`:
+
+```sql
+insert into public.todos (title, is_done)
+values
+  ('Install the Supabase CLI', true),
+  ('Start the local stack', true),
+  ('Create the first migration', true),
+  ('Build the app feature', false);
+```
+
+Then reset the local database so migrations and seeds are applied from scratch:
+
+```bash
+npx supabase db reset
+```
+
+At that point you should be able to:
+
+- open Studio at `http://localhost:54323`
+- browse the `public.todos` table
+- see the seeded rows already present
+
+That is the fastest way to confirm your local environment is actually working.
+
+### Concrete example 2: connect a local app to the local Supabase stack
+
+Suppose you are building a small web app with Vite.
+
+Create `.env.local`:
+
+```bash
+VITE_SUPABASE_URL=http://localhost:54321
+VITE_SUPABASE_ANON_KEY=<local-anon-key>
+```
+
+Create `src/lib/supabase.ts`:
+
+```ts
+import { createClient } from "@supabase/supabase-js";
+
+export const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+);
+```
+
+Then query the local table:
+
+```ts
+import { supabase } from "./lib/supabase";
+
+async function loadTodos() {
+  const { data, error } = await supabase
+    .from("todos")
+    .select("id, title, is_done, created_at")
+    .order("id", { ascending: true });
+
+  if (error) {
+    console.error(error);
+    return;
+  }
+
+  console.table(data);
+}
+
+loadTodos();
+```
+
+This is useful because it proves three things at once:
+
+- your local Supabase containers are running
+- your app can reach the local API
+- your schema is being applied correctly
+
+### Concrete example 3: test local auth without a real email provider
+
+One of the nicest local-dev features is that auth emails are captured by Mailpit.
+
+For a simple email/password flow, your app code can be:
+
+```ts
+const { data, error } = await supabase.auth.signUp({
+  email: "dev@example.com",
+  password: "dev-password-1234",
+});
+
+if (error) {
+  console.error(error);
+} else {
+  console.log("Signed up", data.user?.id);
+}
+```
+
+Then open `http://localhost:54324` to inspect the confirmation email locally.
+
+That gives you a practical auth loop for development:
+
+1. sign up from the app
+2. inspect the email in Mailpit
+3. click the confirmation link
+4. sign in and continue testing
+
+This is much better than trying to wire real SMTP on day one.
 
 ### Security note for local dev
 
@@ -277,6 +448,55 @@ A practical workflow:
 3. Commit migration files
 4. Apply them in staging
 5. Apply them in production
+
+### Example: capture dashboard changes as migrations
+
+If you like using local Studio to design tables first, that is fine. Just make sure you capture the result as SQL before you move on.
+
+A practical local flow looks like this:
+
+```bash
+# 1. make table or column changes in local Studio
+
+# 2. create a migration from the local database diff
+npx supabase db diff --schema public -f add_status_to_todos
+
+# 3. rebuild local state from migrations + seed
+npx supabase db reset
+
+# 4. lint the local schema
+npx supabase db lint
+```
+
+This gives you a durable migration file in `supabase/migrations/` instead of leaving the schema change trapped in the dashboard.
+
+### Example: use local config for auth providers
+
+If you want to test OAuth locally, configure it in `supabase/config.toml` rather than assuming the hosted project settings will magically apply.
+
+For example:
+
+```toml
+[auth.external.github]
+enabled = true
+client_id = "env(SUPABASE_AUTH_GITHUB_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_GITHUB_SECRET)"
+redirect_uri = "http://localhost:54321/auth/v1/callback"
+```
+
+And in your project root `.env`:
+
+```bash
+SUPABASE_AUTH_GITHUB_CLIENT_ID="your-github-client-id"
+SUPABASE_AUTH_GITHUB_SECRET="your-github-client-secret"
+```
+
+After changing auth config, restart the local stack:
+
+```bash
+npx supabase stop
+npx supabase start
+```
 
 ### Good rule
 
