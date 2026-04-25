@@ -479,6 +479,51 @@ th {
   white-space: normal;
 }
 
+html.mermaid-viewer-open,
+body.mermaid-viewer-open {
+  overflow: hidden;
+}
+
+.mermaid-viewer-button {
+  appearance: none;
+  background: #f8f9fa;
+  border: 1px solid #a2a9b1;
+  border-radius: 2px;
+  color: #202122;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1.2;
+  min-height: 2rem;
+  padding: 0.35rem 0.65rem;
+}
+
+.mermaid-viewer-button:hover,
+.mermaid-viewer-button:focus-visible {
+  background: #ffffff;
+  border-color: #36c;
+  color: #0645ad;
+}
+
+.mermaid-viewer-button:disabled {
+  color: #72777d;
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.post pre.mermaid.mermaid-diagram-trigger,
+.post div.mermaid.mermaid-diagram-trigger {
+  cursor: zoom-in;
+}
+
+.post pre.mermaid.mermaid-diagram-trigger:hover,
+.post pre.mermaid.mermaid-diagram-trigger:focus-visible,
+.post div.mermaid.mermaid-diagram-trigger:hover,
+.post div.mermaid.mermaid-diagram-trigger:focus-visible {
+  border-color: #36c;
+  box-shadow: inset 0 0 0 1px #36c;
+  outline: 0;
+}
+
 .post pre.mermaid svg,
 .post div.mermaid svg {
   display: block;
@@ -492,6 +537,61 @@ th {
   background: #fff8f8;
   border-left-color: #d33;
   white-space: pre-wrap;
+}
+
+.mermaid-viewer {
+  align-items: stretch;
+  background: rgba(32, 33, 34, 0.86);
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  left: 0;
+  overscroll-behavior: none;
+  padding: 0.8rem;
+  position: fixed;
+  right: 0;
+  top: 0;
+  z-index: 1000;
+}
+
+.mermaid-viewer-toolbar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: flex-end;
+}
+
+.mermaid-viewer-zoom {
+  background: #ffffff;
+  border: 1px solid #a2a9b1;
+  border-radius: 2px;
+  color: #202122;
+  min-width: 4.5rem;
+  padding: 0.35rem 0.6rem;
+  text-align: center;
+}
+
+.mermaid-viewer-stage {
+  background: #ffffff;
+  border: 1px solid #a2a9b1;
+  flex: 1;
+  min-height: 0;
+  overscroll-behavior: contain;
+  overflow: auto;
+  padding: 1.2rem;
+}
+
+.mermaid-viewer-canvas {
+  min-height: 100%;
+  min-width: max-content;
+}
+
+.mermaid-viewer-canvas svg {
+  display: block;
+  height: auto;
+  max-width: none;
 }
 
 .post blockquote {
