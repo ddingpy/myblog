@@ -3,6 +3,7 @@
   {% assign page_source = page.content | default: '' %}
   {% assign rendered_content = content | default: '' %}
   {% assign mermaid_enabled = page.mermaid %}
+  {% assign asset_version = site.time | date: '%s' %}
   {% unless mermaid_enabled %}
     {% if page_source contains '```mermaid' %}
       {% assign mermaid_enabled = true %}
@@ -14,7 +15,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     {% seo %}
-    <link rel="stylesheet" href="{{ '/assets/css/mynote.css' | relative_url }}">
+    <link rel="stylesheet" href="{{ '/assets/css/mynote.css' | relative_url }}?v={{ asset_version }}">
     {% if site.google_analytics %}
       <script async src="https://www.googletagmanager.com/gtag/js?id={{ site.google_analytics }}"></script>
       <script>
@@ -71,7 +72,7 @@
     </footer>
     {% if mermaid_enabled %}
       <script defer src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
-      <script defer src="{{ '/assets/js/mermaid.js' | relative_url }}"></script>
+      <script defer src="{{ '/assets/js/mermaid.js' | relative_url }}?v={{ asset_version }}"></script>
     {% endif %}
   </body>
 </html>
