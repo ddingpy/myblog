@@ -48,8 +48,8 @@ img {
 }
 
 .container {
-  width: min(1080px, 96%);
-  margin: 0 auto;
+  width: 100%;
+  margin: 0;
 }
 
 .site-header {
@@ -62,7 +62,7 @@ img {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.7rem 0;
+  padding: 0.7rem 2rem;
 }
 
 .site-title {
@@ -99,10 +99,12 @@ img {
 }
 
 main.container {
-  width: min(980px, 94%);
+  width: 100%;
   min-height: calc(100vh - 150px);
   background: var(--surface);
   border: 1px solid var(--border);
+  border-left: 0;
+  border-right: 0;
   border-top: 0;
   padding: 1.4rem 2rem 2.25rem;
 }
@@ -724,10 +726,12 @@ body.mermaid-viewer-open {
 }
 
 .site-footer {
-  width: min(980px, 94%);
-  margin: 0 auto 1.6rem;
+  width: 100%;
+  margin: 0;
   background: #ffffff;
   border: 1px solid #c8ccd1;
+  border-left: 0;
+  border-right: 0;
   border-top: 0;
 }
 
@@ -746,6 +750,7 @@ body.mermaid-viewer-open {
   .site-header .container {
     align-items: flex-start;
     flex-direction: column;
+    padding: 0.7rem 1rem;
   }
 
   .site-nav {
