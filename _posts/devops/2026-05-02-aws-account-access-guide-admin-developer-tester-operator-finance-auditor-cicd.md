@@ -22,24 +22,25 @@ A comprehensive Markdown guide for creating and managing new AWS access accounts
 4. [Overall Architecture](#overall-architecture)
 5. [Method A: IAM Identity Center Setup](#method-a-iam-identity-center-setup)
 6. [Single AWS Account: Admin and Developer CLI Profiles](#single-aws-account-admin-and-developer-cli-profiles)
-7. [Method B: IAM User Fallback Setup](#method-b-iam-user-fallback-setup)
-8. [Admin Account Setup](#admin-account-setup)
-9. [Developer Account Setup](#developer-account-setup)
-10. [Tester / QA Account Setup](#tester--qa-account-setup)
-11. [Operator / DevOps Account Setup](#operator--devops-account-setup)
-12. [Finance / Billing Account Setup](#finance--billing-account-setup)
-13. [Security Auditor Account Setup](#security-auditor-account-setup)
-14. [Read-Only Account Setup](#read-only-account-setup)
-15. [CI/CD and Automation Access](#cicd-and-automation-access)
-16. [Environment-Based Access Design](#environment-based-access-design)
-17. [Billing Visibility Setup](#billing-visibility-setup)
-18. [MFA and Password Policy](#mfa-and-password-policy)
-19. [CLI Access Setup](#cli-access-setup)
-20. [Custom Policy Examples](#custom-policy-examples)
-21. [Verification Checklist](#verification-checklist)
-22. [Troubleshooting](#troubleshooting)
-23. [Best Practices](#best-practices)
-24. [Reference Links](#reference-links)
+7. [Sandbox Development and Test Account Setup](#sandbox-development-and-test-account-setup)
+8. [Method B: IAM User Fallback Setup](#method-b-iam-user-fallback-setup)
+9. [Admin Account Setup](#admin-account-setup)
+10. [Developer Account Setup](#developer-account-setup)
+11. [Tester / QA Account Setup](#tester--qa-account-setup)
+12. [Operator / DevOps Account Setup](#operator--devops-account-setup)
+13. [Finance / Billing Account Setup](#finance--billing-account-setup)
+14. [Security Auditor Account Setup](#security-auditor-account-setup)
+15. [Read-Only Account Setup](#read-only-account-setup)
+16. [CI/CD and Automation Access](#cicd-and-automation-access)
+17. [Environment-Based Access Design](#environment-based-access-design)
+18. [Billing Visibility Setup](#billing-visibility-setup)
+19. [MFA and Password Policy](#mfa-and-password-policy)
+20. [CLI Access Setup](#cli-access-setup)
+21. [Custom Policy Examples](#custom-policy-examples)
+22. [Verification Checklist](#verification-checklist)
+23. [Troubleshooting](#troubleshooting)
+24. [Best Practices](#best-practices)
+25. [Reference Links](#reference-links)
 
 ---
 
@@ -513,6 +514,202 @@ output = json
 - Do not use the root user for daily work.
 - Keep MFA enabled for the root user and IAM Identity Center user.
 - Keep admin session duration shorter than developer session duration.
+
+---
+
+# Sandbox Development and Test Account Setup
+
+Use this setup when you want a safe place to build and test AWS services before anything becomes production-like.
+
+## Recommended model
+
+The best practice is to use a separate AWS account for sandbox and early testing.
+
+```text
+Management account
+└── Sandbox account
+    ├── SandboxDeveloperAccess -> profile: sandbox-dev
+    ├── SandboxTesterAccess    -> profile: sandbox-test
+    └── AdminAccess            -> profile: sandbox-admin
+```
+
+This keeps experimental resources, service quotas, logs, and mistakes away from production and billing administration.
+
+If you currently have only one AWS account, you can still use IAM Identity Center profiles to separate behavior, but the isolation is weaker. In that case, use strict naming, tags, budgets, and cleanup rules.
+
+## Suggested accounts
+
+For one person or a small team:
+
+| AWS Account | Purpose | Who Uses It |
+|---|---|---|
+| Management | IAM Identity Center, billing, organization administration | Admin only |
+| Sandbox | Development experiments and test deployments | Developers and testers |
+
+For a larger setup:
+
+| AWS Account | Purpose |
+|---|---|
+| Management | IAM Identity Center, billing, organization administration |
+| Sandbox | Temporary experiments and learning |
+| Development | Active app development |
+| Testing | QA and integration tests |
+| Production | Real users and real data |
+
+Do not promote a sandbox account into production. Treat sandbox resources as temporary.
+
+## Suggested IAM Identity Center groups
+
+```text
+AWS-Admins
+AWS-SandboxDevelopers
+AWS-SandboxTesters
+AWS-SandboxReadOnly
+```
+
+For a one-person setup, your IAM Identity Center user can belong to both `AWS-Admins` and `AWS-SandboxDevelopers`.
+
+## Suggested permission sets
+
+| Permission Set | Attach Policy | Account Assignment | Purpose |
+|---|---|---|---|
+| `AdminAccess` | `AdministratorAccess` | Management and Sandbox | Account setup and emergency changes |
+| `SandboxDeveloperAccess` | `PowerUserAccess` or custom developer policy | Sandbox only | Build and modify sandbox resources |
+| `SandboxTesterAccess` | Custom tester policy or `ReadOnlyAccess` plus test actions | Sandbox only | Run tests and inspect resources |
+| `SandboxReadOnlyAccess` | `ReadOnlyAccess` | Sandbox only | Inspect resources without changing them |
+
+Avoid giving sandbox developers billing, organization, account-closure, or unrestricted IAM administration permissions.
+
+## Account assignments
+
+In IAM Identity Center, assign groups to the sandbox account like this:
+
+```text
+AWS account: Sandbox
+Group: AWS-SandboxDevelopers
+Permission set: SandboxDeveloperAccess
+
+AWS account: Sandbox
+Group: AWS-SandboxTesters
+Permission set: SandboxTesterAccess
+
+AWS account: Sandbox
+Group: AWS-Admins
+Permission set: AdminAccess
+```
+
+Keep management account access narrow:
+
+```text
+AWS account: Management
+Group: AWS-Admins
+Permission set: AdminAccess
+```
+
+Developers should not need normal access to the management account.
+
+## CLI profiles
+
+Configure one profile per sandbox role:
+
+```bash
+aws configure sso
+```
+
+Suggested profile names:
+
+```text
+sandbox-dev
+sandbox-test
+sandbox-admin
+```
+
+Use the sandbox developer profile for daily development:
+
+```bash
+aws sso login --profile sandbox-dev
+aws sts get-caller-identity --profile sandbox-dev
+```
+
+Use the sandbox tester profile for test verification:
+
+```bash
+aws sso login --profile sandbox-test
+aws sts get-caller-identity --profile sandbox-test
+```
+
+Use admin only for account setup:
+
+```bash
+aws sts get-caller-identity --profile sandbox-admin
+```
+
+## Sandbox resource rules
+
+Use consistent names and tags so resources are easy to find and delete.
+
+Recommended tags:
+
+```text
+Environment = Sandbox
+Owner       = your-email@example.com
+Project     = project-name
+ExpiresOn   = YYYY-MM-DD
+ManagedBy   = Manual or Terraform
+```
+
+Recommended naming:
+
+```text
+sandbox-project-service
+sandbox-project-bucket-name
+sandbox-project-lambda-name
+sandbox-project-db
+```
+
+For Route 53, avoid using the production hosted zone directly from sandbox work. Prefer a delegated subdomain:
+
+```text
+sandbox.example.com
+dev.example.com
+test.example.com
+```
+
+For data, do not copy production secrets, customer data, payment data, or private production backups into sandbox.
+
+## Sandbox cost controls
+
+Set cost controls before giving broad sandbox access.
+
+Minimum controls:
+
+- Create an AWS Budget for the sandbox account.
+- Add budget email alerts.
+- Prefer small instance sizes.
+- Stop or delete EC2 and RDS resources when not in use.
+- Review NAT Gateway, load balancer, RDS, OpenSearch, and large EBS costs.
+- Delete unused Elastic IPs, snapshots, and old test buckets.
+
+If using AWS Organizations, consider service control policies for sandbox accounts to restrict expensive or risky services and Regions.
+
+## One-account fallback
+
+If you are not ready to create a separate sandbox AWS account, use one AWS account with stronger discipline:
+
+```text
+Profile: admin        -> AdminAccess
+Profile: sandbox-dev  -> SandboxDeveloperAccess
+Profile: sandbox-test -> SandboxTesterAccess
+```
+
+Use tags and resource prefixes to separate sandbox resources:
+
+```text
+Environment = Sandbox
+Name starts with sandbox-
+```
+
+This is acceptable for learning and early experiments, but move to a separate sandbox account before storing important data or running production-like services.
 
 ---
 
@@ -1093,6 +1290,7 @@ For better security, separate environments.
 ```mermaid
 flowchart TD
     Org[AWS Organization] --> Mgmt[Management Account]
+    Org --> Sandbox[Sandbox Account]
     Org --> Dev[Development Account]
     Org --> Test[Testing Account]
     Org --> Stage[Staging Account]
@@ -1101,6 +1299,9 @@ flowchart TD
     Org --> Logs[Logging Account]
 
     Admins[AWS-Admins] --> Mgmt
+    Admins --> Sandbox
+    SandboxDevelopers[AWS-SandboxDevelopers] --> Sandbox
+    SandboxTesters[AWS-SandboxTesters] --> Sandbox
     Developers[AWS-Developers] --> Dev
     Testers[AWS-Testers] --> Test
     Operators[AWS-Operators] --> Stage
@@ -1118,6 +1319,7 @@ flowchart TD
 | Environment | Admin | Developer | Tester | Operator | Auditor | Finance |
 |---|---:|---:|---:|---:|---:|---:|
 | Management | Yes | No | No | No | Read-only | Billing |
+| Sandbox | Yes | Broad sandbox access | Test access | No | Read-only | No |
 | Development | Yes | Power user | Limited | Limited | Read-only | No |
 | Testing | Yes | Limited | Test access | Limited | Read-only | No |
 | Staging | Yes | Limited | Limited | Operator | Read-only | No |
@@ -1550,6 +1752,15 @@ You can also create custom billing policies, but billing permissions change over
 - [ ] MFA enabled.
 - [ ] Not using root for daily work.
 
+## Sandbox
+
+- [ ] Sandbox users can access only the sandbox account.
+- [ ] Sandbox users cannot access billing or payment methods.
+- [ ] Sandbox users cannot access production resources.
+- [ ] Sandbox resources use `Environment = Sandbox` tags.
+- [ ] Sandbox budget alerts are configured.
+- [ ] Temporary resources have an owner and cleanup plan.
+
 ## Developer
 
 - [ ] Can access development resources.
@@ -1728,6 +1939,7 @@ Avoid giving every developer production access.
 Recommended:
 
 ```text
+Sandbox: broad but temporary developer/test access
 Development: broad developer access
 Testing: tester and developer access
 Staging: operator and limited developer access
@@ -1793,6 +2005,8 @@ For a small team, start with this:
 ```mermaid
 flowchart TD
     IC[IAM Identity Center] --> Admins[AWS-Admins]
+    IC --> SandboxDevs[AWS-SandboxDevelopers]
+    IC --> SandboxTesters[AWS-SandboxTesters]
     IC --> Devs[AWS-Developers]
     IC --> Testers[AWS-Testers]
     IC --> Ops[AWS-Operators]
@@ -1801,6 +2015,8 @@ flowchart TD
     IC --> ReadOnly[AWS-ReadOnly]
 
     Admins --> AdminPS[AdministratorAccess]
+    SandboxDevs --> SandboxDevPS[PowerUserAccess on Sandbox]
+    SandboxTesters --> SandboxTestPS[Custom tester access on Sandbox]
     Devs --> DevPS[PowerUserAccess on Dev]
     Testers --> TestPS[Custom QA on Test]
     Ops --> OpsPS[Custom Ops on Stage/Prod]
@@ -1813,6 +2029,7 @@ flowchart TD
 
 ```text
 AWS-Admins
+AWS-SandboxDevelopers
 AWS-Developers
 AWS-ReadOnly
 AWS-Finance
@@ -1822,6 +2039,8 @@ AWS-Finance
 
 ```text
 AWS-Admins
+AWS-SandboxDevelopers
+AWS-SandboxTesters
 AWS-Developers
 AWS-Testers
 AWS-Operators
@@ -1842,6 +2061,28 @@ Group: AWS-Admins
 Permission: AdministratorAccess
 MFA: Required
 Billing: Optional
+```
+
+## Sandbox Developer
+
+```text
+Group: AWS-SandboxDevelopers
+Permission: SandboxDeveloperAccess
+Account: Sandbox only
+MFA: Required
+Billing: No
+Production: No
+```
+
+## Sandbox Tester
+
+```text
+Group: AWS-SandboxTesters
+Permission: SandboxTesterAccess
+Account: Sandbox only
+MFA: Required
+Billing: No
+Production: No
 ```
 
 ## Developer
@@ -1966,6 +2207,21 @@ Official AWS documentation:
 - Getting IAM Identity Center credentials for the AWS CLI
   https://docs.aws.amazon.com/singlesignon/latest/userguide/howtogetcredentials.html
 
+- Sandbox OU guidance
+  https://docs.aws.amazon.com/whitepapers/latest/organizing-your-aws-environment/experimental-ous.html
+
+- Transitioning to multiple AWS accounts
+  https://docs.aws.amazon.com/prescriptive-guidance/latest/transitioning-to-multiple-aws-accounts/welcome.html
+
+- Service control policies
+  https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html
+
+- AWS Budgets
+  https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-create.html
+
+- AWS Organizations tag policies
+  https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_tag-policies.html
+
 - AWS managed policies vs inline policies  
   https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_managed-vs-inline.html
 
@@ -1978,6 +2234,8 @@ Use this default structure:
 ```text
 IAM Identity Center
 ├── AWS-Admins              → AdministratorAccess
+├── AWS-SandboxDevelopers   → SandboxDeveloperAccess on sandbox only
+├── AWS-SandboxTesters      → SandboxTesterAccess on sandbox only
 ├── AWS-Developers          → PowerUserAccess on dev/test only
 ├── AWS-Testers             → Custom QA policy
 ├── AWS-Operators           → Custom production operations policy
