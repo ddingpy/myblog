@@ -21,24 +21,25 @@ A comprehensive Markdown guide for creating and managing new AWS access accounts
 3. [Role Matrix](#role-matrix)
 4. [Overall Architecture](#overall-architecture)
 5. [Method A: IAM Identity Center Setup](#method-a-iam-identity-center-setup)
-6. [Method B: IAM User Fallback Setup](#method-b-iam-user-fallback-setup)
-7. [Admin Account Setup](#admin-account-setup)
-8. [Developer Account Setup](#developer-account-setup)
-9. [Tester / QA Account Setup](#tester--qa-account-setup)
-10. [Operator / DevOps Account Setup](#operator--devops-account-setup)
-11. [Finance / Billing Account Setup](#finance--billing-account-setup)
-12. [Security Auditor Account Setup](#security-auditor-account-setup)
-13. [Read-Only Account Setup](#read-only-account-setup)
-14. [CI/CD and Automation Access](#cicd-and-automation-access)
-15. [Environment-Based Access Design](#environment-based-access-design)
-16. [Billing Visibility Setup](#billing-visibility-setup)
-17. [MFA and Password Policy](#mfa-and-password-policy)
-18. [CLI Access Setup](#cli-access-setup)
-19. [Custom Policy Examples](#custom-policy-examples)
-20. [Verification Checklist](#verification-checklist)
-21. [Troubleshooting](#troubleshooting)
-22. [Best Practices](#best-practices)
-23. [Reference Links](#reference-links)
+6. [Single AWS Account: Admin and Developer CLI Profiles](#single-aws-account-admin-and-developer-cli-profiles)
+7. [Method B: IAM User Fallback Setup](#method-b-iam-user-fallback-setup)
+8. [Admin Account Setup](#admin-account-setup)
+9. [Developer Account Setup](#developer-account-setup)
+10. [Tester / QA Account Setup](#tester--qa-account-setup)
+11. [Operator / DevOps Account Setup](#operator--devops-account-setup)
+12. [Finance / Billing Account Setup](#finance--billing-account-setup)
+13. [Security Auditor Account Setup](#security-auditor-account-setup)
+14. [Read-Only Account Setup](#read-only-account-setup)
+15. [CI/CD and Automation Access](#cicd-and-automation-access)
+16. [Environment-Based Access Design](#environment-based-access-design)
+17. [Billing Visibility Setup](#billing-visibility-setup)
+18. [MFA and Password Policy](#mfa-and-password-policy)
+19. [CLI Access Setup](#cli-access-setup)
+20. [Custom Policy Examples](#custom-policy-examples)
+21. [Verification Checklist](#verification-checklist)
+22. [Troubleshooting](#troubleshooting)
+23. [Best Practices](#best-practices)
+24. [Reference Links](#reference-links)
 
 ---
 
@@ -279,6 +280,239 @@ Example:
 | Management | AWS-Finance | FinanceReadOnlyAccess |
 | All accounts | AWS-SecurityAuditors | SecurityAuditAccess |
 | All accounts | AWS-ReadOnly | ReadOnlyAccess |
+
+---
+
+# Single AWS Account: Admin and Developer CLI Profiles
+
+Use this setup when you have one AWS account and one workstation, but you want to clearly separate daily developer access from occasional administrator access.
+
+Do not create extra AWS accounts just to separate admin and developer work. Use one IAM Identity Center user, two groups, two permission sets, and two AWS CLI profiles.
+
+```text
+you@example.com
+├── AWS-Developers -> DeveloperAccess -> same AWS account -> CLI profile: dev
+└── AWS-Admins     -> AdminAccess     -> same AWS account -> CLI profile: admin
+```
+
+## Recommended single-account design
+
+| Purpose | Identity Center Group | Permission Set | AWS CLI Profile | Daily Use |
+|---|---|---|---|---|
+| Normal development | `AWS-Developers` | `DeveloperAccess` | `dev` | Yes |
+| Account administration | `AWS-Admins` | `AdminAccess` | `admin` | Only when needed |
+
+This gives one person two clearly named access paths without storing long-term IAM access keys on the machine.
+
+## Step 1: Enable IAM Identity Center
+
+1. Open the AWS Console as the account owner or an existing administrator.
+2. Search for **IAM Identity Center**.
+3. Enable IAM Identity Center.
+4. If AWS asks for an instance type, choose the organization instance for account access.
+5. Use the built-in Identity Center directory unless you already have another identity provider.
+
+For a single AWS account, the organization can still contain only that one account. You do not need to create separate member accounts for this admin/developer split.
+
+IAM Identity Center and AWS Organizations do not add a separate service charge, but normal AWS resource usage is still billed. If the account is still using free tier credits, review AWS free tier behavior before creating an organization.
+
+## Step 2: Create one user
+
+Create one IAM Identity Center user for yourself.
+
+Example:
+
+```text
+you@example.com
+```
+
+This is different from an IAM user. IAM Identity Center users receive temporary credentials through SSO.
+
+## Step 3: Create two groups
+
+```text
+AWS-Admins
+AWS-Developers
+```
+
+Add the same user to both groups.
+
+## Step 4: Create two permission sets
+
+| Permission Set | Attach Policy | Suggested Session Duration |
+|---|---|---|
+| `AdminAccess` | `AdministratorAccess` | 1 hour |
+| `DeveloperAccess` | `PowerUserAccess` or custom developer policy | 4 to 8 hours |
+
+Use `AdminAccess` only for account-level tasks such as IAM, billing setup, organization settings, and emergency fixes.
+
+Use `DeveloperAccess` for normal application work such as S3, Lambda, ECS, ECR, DynamoDB, RDS, CloudWatch, and development deployments.
+
+## Step 5: Assign both groups to the same AWS account
+
+In IAM Identity Center:
+
+```text
+AWS account: your single AWS account
+Group: AWS-Admins
+Permission set: AdminAccess
+
+AWS account: your single AWS account
+Group: AWS-Developers
+Permission set: DeveloperAccess
+```
+
+After assignment, the AWS access portal should show the same AWS account with two available roles.
+
+## Step 6: Find the SSO start URL
+
+The SSO start URL is the AWS access portal URL.
+
+Find it here:
+
+```text
+IAM Identity Center -> Settings -> AWS access portal URL
+```
+
+It usually looks like:
+
+```text
+https://d-xxxxxxxxxx.awsapps.com/start
+```
+
+## Step 7: Configure the developer CLI profile
+
+Run:
+
+```bash
+aws configure sso
+```
+
+Example answers:
+
+```text
+SSO session name: my-aws
+SSO start URL: https://d-xxxxxxxxxx.awsapps.com/start
+SSO region: ap-northeast-2
+SSO registration scopes: sso:account:access
+CLI default client Region: ap-northeast-2
+CLI default output format: json
+CLI profile name: dev
+```
+
+When the browser opens, sign in. Then choose:
+
+```text
+AWS account: your single AWS account
+Role / permission set: DeveloperAccess
+```
+
+## Step 8: Configure the admin CLI profile
+
+Run the wizard again:
+
+```bash
+aws configure sso
+```
+
+Use the same SSO start URL and SSO region, but choose the admin role and profile name:
+
+```text
+SSO session name: my-aws
+SSO start URL: https://d-xxxxxxxxxx.awsapps.com/start
+SSO region: ap-northeast-2
+SSO registration scopes: sso:account:access
+CLI default client Region: ap-northeast-2
+CLI default output format: json
+CLI profile name: admin
+```
+
+When prompted for the account and role:
+
+```text
+AWS account: your single AWS account
+Role / permission set: AdminAccess
+```
+
+## Step 9: Verify both profiles
+
+Login and verify the developer profile:
+
+```bash
+aws sso login --profile dev
+aws sts get-caller-identity --profile dev
+```
+
+Login and verify the admin profile:
+
+```bash
+aws sso login --profile admin
+aws sts get-caller-identity --profile admin
+```
+
+The account ID can be the same for both profiles. The role name should be different.
+
+## Daily usage pattern
+
+Make developer access the default for normal shells:
+
+```bash
+export AWS_PROFILE=dev
+aws sts get-caller-identity
+```
+
+Run admin commands only with an explicit profile:
+
+```bash
+aws iam list-users --profile admin
+```
+
+Optional shell aliases:
+
+```bash
+alias aws-dev='AWS_PROFILE=dev aws'
+alias aws-admin='AWS_PROFILE=admin aws'
+```
+
+## Expected AWS CLI config
+
+The AWS CLI stores SSO profile settings in:
+
+```text
+~/.aws/config
+```
+
+Example:
+
+```ini
+[sso-session my-aws]
+sso_start_url = https://d-xxxxxxxxxx.awsapps.com/start
+sso_region = ap-northeast-2
+sso_registration_scopes = sso:account:access
+
+[profile dev]
+sso_session = my-aws
+sso_account_id = 123456789012
+sso_role_name = DeveloperAccess
+region = ap-northeast-2
+output = json
+
+[profile admin]
+sso_session = my-aws
+sso_account_id = 123456789012
+sso_role_name = AdminAccess
+region = ap-northeast-2
+output = json
+```
+
+## Safety rules for this setup
+
+- Use `dev` for daily work.
+- Use `admin` only for account administration.
+- Do not create IAM access keys for your human user unless there is a strong reason.
+- Do not use the root user for daily work.
+- Keep MFA enabled for the root user and IAM Identity Center user.
+- Keep admin session duration shorter than developer session duration.
 
 ---
 
@@ -983,22 +1217,51 @@ Recommended:
 
 ## IAM Identity Center CLI
 
-Recommended for humans:
+Recommended for humans, especially when one machine needs separate admin and developer profiles.
+
+For a single AWS account, configure two profiles:
+
+```text
+dev    -> DeveloperAccess permission set
+admin  -> AdminAccess permission set
+```
 
 ```bash
 aws configure sso
 ```
 
+Use the AWS access portal URL as the SSO start URL:
+
+```text
+https://d-xxxxxxxxxx.awsapps.com/start
+```
+
+Find it here:
+
+```text
+IAM Identity Center -> Settings -> AWS access portal URL
+```
+
+Run the wizard once for `dev` and once for `admin`.
+
 Login:
 
 ```bash
 aws sso login --profile dev
+aws sso login --profile admin
 ```
 
 Verify:
 
 ```bash
 aws sts get-caller-identity --profile dev
+aws sts get-caller-identity --profile admin
+```
+
+Use `dev` by default:
+
+```bash
+export AWS_PROFILE=dev
 ```
 
 ## IAM user CLI fallback
@@ -1699,6 +1962,9 @@ Official AWS documentation:
 
 - AWS CLI configuration and credential files  
   https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html
+
+- Getting IAM Identity Center credentials for the AWS CLI
+  https://docs.aws.amazon.com/singlesignon/latest/userguide/howtogetcredentials.html
 
 - AWS managed policies vs inline policies  
   https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_managed-vs-inline.html
