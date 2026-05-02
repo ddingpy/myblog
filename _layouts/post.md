@@ -45,7 +45,14 @@ layout: default
       {% endif %}
     </p>
   </header>
-  {{ content }}
+  {% assign post_content = content | strip %}
+  {% assign post_content_start = post_content | slice: 0, 3 %}
+  {% assign rendered_post_content = content %}
+  {% if post_content_start == '<h1' %}
+    {% assign first_heading = post_content | split: '</h1>' | first | append: '</h1>' %}
+    {% assign rendered_post_content = post_content | remove_first: first_heading | strip %}
+  {% endif %}
+  {{ rendered_post_content }}
 
   <nav class="post-pager" aria-label="Post navigation">
     <div class="post-pager-slot">
