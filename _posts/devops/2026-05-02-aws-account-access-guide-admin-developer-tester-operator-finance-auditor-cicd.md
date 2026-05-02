@@ -454,6 +454,9 @@ aws iam add-user-to-group \
   --group-name Developers
 ```
 
+If this developer only needs AWS CLI access, do not create a console password.
+The admin still needs to create an access key for the user, because `PowerUserAccess` does not allow the developer to manage IAM access keys by default.
+
 ---
 
 # Tester / QA Account Setup
@@ -1002,14 +1005,138 @@ aws sts get-caller-identity --profile dev
 
 Only create access keys when necessary.
 
+An IAM user does not need a console password to use the AWS CLI.
+
+```text
+Console password  -> AWS Management Console sign-in
+Access key pair   -> AWS CLI, SDK, and API access
+```
+
+Use this model when a developer user already exists in IAM, is added to the correct group, and should only use command-line access.
+
+### Admin creates the developer IAM user
+
+If the user does not already exist:
+
 ```bash
-aws configure --profile dev-user
+aws iam create-user --user-name dev-john
+
+aws iam add-user-to-group \
+  --user-name dev-john \
+  --group-name Developers
+```
+
+Do not run `aws iam create-login-profile` if the user should not have an AWS Console password.
+
+### Admin creates an access key
+
+Create an access key from an admin profile:
+
+```bash
+aws iam create-access-key \
+  --user-name dev-john \
+  --profile admin
+```
+
+The output contains:
+
+```text
+AccessKeyId
+SecretAccessKey
+```
+
+The `SecretAccessKey` is shown only once. Store it securely and give it to the developer through a secure channel.
+
+### Developer configures AWS CLI
+
+On the developer machine:
+
+```bash
+aws configure --profile dev-john
+```
+
+Enter:
+
+```text
+AWS Access Key ID
+AWS Secret Access Key
+Default region name
+Default output format
 ```
 
 Verify:
 
 ```bash
-aws sts get-caller-identity --profile dev-user
+aws sts get-caller-identity --profile dev-john
+```
+
+Use the profile in CLI commands:
+
+```bash
+aws s3 ls --profile dev-john
+```
+
+Or set it for the current terminal session:
+
+```bash
+export AWS_PROFILE=dev-john
+aws sts get-caller-identity
+```
+
+### Local credential files
+
+The AWS CLI stores the named profile in:
+
+```text
+~/.aws/credentials
+~/.aws/config
+```
+
+Example:
+
+```ini
+# ~/.aws/credentials
+[dev-john]
+aws_access_key_id = AKIA...
+aws_secret_access_key = ...
+```
+
+```ini
+# ~/.aws/config
+[profile dev-john]
+region = ap-northeast-2
+output = json
+```
+
+Do not commit these files or paste access keys into Git, tickets, chat, or documentation.
+
+### Rotate or remove the access key
+
+List keys:
+
+```bash
+aws iam list-access-keys \
+  --user-name dev-john \
+  --profile admin
+```
+
+Deactivate a key:
+
+```bash
+aws iam update-access-key \
+  --user-name dev-john \
+  --access-key-id ACCESS_KEY_ID \
+  --status Inactive \
+  --profile admin
+```
+
+Delete a key after confirming it is no longer used:
+
+```bash
+aws iam delete-access-key \
+  --user-name dev-john \
+  --access-key-id ACCESS_KEY_ID \
+  --profile admin
 ```
 
 ## Avoid
@@ -1566,6 +1693,12 @@ Official AWS documentation:
 
 - IAM MFA  
   https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_mfa.html
+
+- IAM access keys  
+  https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html
+
+- AWS CLI configuration and credential files  
+  https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html
 
 - AWS managed policies vs inline policies  
   https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_managed-vs-inline.html
